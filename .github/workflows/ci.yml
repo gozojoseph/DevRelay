@@ -69,3 +69,6 @@ jobs:
         env:
           # Free for public/personal repos; a license is only required for orgs.
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          # Required by gitleaks-action v2 for pull_request events (it posts
+          # inline annotations); push events work without it.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
