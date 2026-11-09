@@ -65,7 +65,7 @@ jobs:
         run: npm audit --audit-level=high
 
       - name: Secret scanning (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           # Free for public/personal repos; a license is only required for orgs.
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
