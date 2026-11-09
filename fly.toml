@@ -1,0 +1,37 @@
+# Fly.io configuration for the DevRelay **API** application.
+# Worker runs as a separate Fly app (see fly.worker.toml) — process separation
+# across two apps keeps scaling, restarts and logs clean.
+#
+#   fly apps create devrelay-api
+#   fly secrets set -a devrelay-api DATABASE_URL=... SESSION_SECRET=... \
+#       ENCRYPTION_KEY=... SMTP_HOST=... SMTP_PASSWORD=... EMAIL_FROM=...
+#   fly deploy -a devrelay-api
+#
+# The release_command runs migrations BEFORE the new machines boot; the
+# drizzle journal makes repeats a no-op, so it is safe on every deploy.
+
+app = "devrelay-api"
+primary_region = "lhr" # pick the region closest to your users (e.g. fra, ams)
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+
+[deploy]
+  release_command = "node dist/server/db/migrate.js"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  interval = "30s"
+  grace_period = "10s"
+  method = "GET"
+  path = "/healthz"

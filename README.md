@@ -40,7 +40,9 @@ server/
   db/               schema.ts, client.ts, migrate.ts, check-migrations.ts
 web/                Vite + React dashboard & public site (code-split per route)
 tests/              Vitest suite (unit + PGlite integration)
-docs/               provider setup, deployment, backup, launch checklist
+docs/               provider setup, deployment, production runbook, backup, launch checklist
+Dockerfile          multi-stage production image (API / worker / migrate / admin)
+fly.toml | render.yaml   platform configs; migrations run before boot (release/preDeploy)
 ```
 
 ## Getting started
@@ -98,4 +100,5 @@ watches npm and GitHub Actions weekly.
 - [Deployment](docs/deployment.md)
 - [Backups & recovery](docs/backup.md)
 - [Launch checklist (external blockers)](docs/launch-checklist.md)
+- [Production runbook](docs/production-runbook.md) — full go-live guide (env, providers, deploy, verification, operations)
 - API surface: `web/public/openapi.yaml` (served with the built site)

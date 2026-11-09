@@ -1,0 +1,24 @@
+# Fly.io configuration for the DevRelay **worker** application.
+# Shares the same Docker image as the API but boots the worker entrypoint and
+# serves no HTTP. Set the identical secrets on this app:
+#
+#   fly apps create devrelay-worker
+#   fly secrets set -a devrelay-worker DATABASE_URL=... SESSION_SECRET=... \
+#       ENCRYPTION_KEY=... AT_...=... META_...=... (same values as the API)
+#   fly deploy -a devrelay-worker -c fly.worker.toml
+#
+# Scale workers with: fly machines run <image> -a devrelay-worker -- autostart=false
+
+app = "devrelay-worker"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+
+[processes]
+  # Overrides the image CMD for this app only.
+  app = "node dist/server/worker/index.js"

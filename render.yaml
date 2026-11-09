@@ -1,0 +1,81 @@
+# Render.com blueprint. Deploys the API (web) and the job worker from the
+# same Dockerfile. Secrets marked `sync: false` are entered once in the
+# dashboard (they propagate to both services via the env var group).
+#
+#   Render dashboard -> New -> Blueprint -> point at this repo.
+#
+# The API's preDeployCommand applies migrations before the new release
+# serves traffic; the worker intentionally has none (avoids two processes
+# migrating concurrently — the API deploy always precedes the worker).
+
+envVarGroups:
+  - name: devrelay-production
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: SUPPORT_EMAIL
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_WEBHOOK_SECRET
+        sync: false
+      - key: AT_USERNAME
+        sync: false
+      - key: AT_API_KEY
+        sync: false
+      - key: AT_MODE
+        value: live
+      - key: AT_CALLBACK_TOKEN
+        sync: false
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_CONFIG_ID
+        sync: false
+      - key: META_VERIFY_TOKEN
+        sync: false
+      - key: META_PRODUCTION_APPROVED
+        value: "false"
+
+services:
+  - type: web
+    name: devrelay-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /healthz
+    preDeployCommand: node dist/server/db/migrate.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "8080"
+      - fromGroup: devrelay-production
+
+  - type: worker
+    name: devrelay-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerCommand: node dist/server/worker/index.js
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "8080"
+      - fromGroup: devrelay-production

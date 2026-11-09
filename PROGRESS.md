@@ -45,6 +45,19 @@ Test coverage highlights (`tests/`):
 
 Upgrades were verified gate-by-gate (typecheck, lint, build, db:check, 76 tests after each major); `db:generate` re-ran to prove drizzle-kit still works under the esbuild override ("No schema changes").
 
+## Production deployment artifacts (2026-11-09)
+
+| Artifact | Purpose |
+| --- | --- |
+| `Dockerfile` | Multi-stage build → slim runtime (prod deps only, `USER node`, `HEALTHCHECK /healthz`); four entrypoints: API, worker, migrate, admin bootstrap |
+| `fly.toml` / `fly.worker.toml` | Two Fly apps (API + worker); `release_command` applies migrations before API machines boot |
+| `render.yaml` | Render blueprint (`envVarGroups`, API `preDeployCommand` migrates, worker as `type: worker`) |
+| `.dockerignore` | Excludes `.env`/secrets, docs, tests, node_modules from the build context |
+| `docs/production-runbook.md` | Complete go-live guide: production boot gates, env vars, provider connections, deploy procedures per platform, go-live verification, operations/rollback |
+| `npm run start:migrate` | Compiled migration entrypoint (`node dist/server/db/migrate.js`) — runs with prod deps only |
+
+Honest status: the compiled runtime paths work (typecheck + build green; servers boot from `dist/server`), but the **image has never been built** — no Docker on this machine. First `docker build` happens on the deploy host or CI; if anything surfaces there, treat it as a bug to fix before launch.
+
 Not yet done / intentionally blocked (see `docs/launch-checklist.md`):
 
 - [ ] First green CI run on GitHub (repo remote to be added manually).

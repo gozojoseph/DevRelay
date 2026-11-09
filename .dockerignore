@@ -1,0 +1,15 @@
+# Secrets and local state must never enter the build context.
+.env
+.env.*
+!.env.example
+
+# Git and tooling noise the image never needs
+.git
+.github
+node_modules
+dist
+coverage
+docs
+tests
+*.log
+*.tsbuildinfo
