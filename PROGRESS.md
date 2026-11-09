@@ -37,10 +37,10 @@ Test coverage highlights (`tests/`):
 | Item | State |
 | --- | --- |
 | Dependency security | ✅ `npm audit` **zero findings** (full tree + production-only): `nodemailer` 7.0.6→10.4.0 (2 high), `drizzle-orm` 0.44.6→0.45.4 (high, identifier-escaping), `vitest` 3.2.4→5.1.0 (2 critical in tinypool/@vitest/mocker); targeted `overrides` bumped `esbuild` (inside drizzle-kit's `@esbuild-kit` chain) and `minimatch` (under `typescript-estree`) past remaining moderates; unused `supertest`/`@types/supertest` removed. |
-| CI pipeline | ✅ `.github/workflows/ci.yml` — gate order: typecheck → lint → build → db:check → tests+coverage artifact → npm-audit (prod & full, high+) → gitleaks; Node 22 + 24 matrix; concurrency-throttled. First green run pending first push to GitHub. |
-| Dependabot | ✅ `.github/dependabot.yml` — weekly npm + GitHub Actions; minor/patch grouped, majors reviewed individually. |
+| CI pipeline | ✅ `.github/workflows/ci.yml` — gate order: typecheck → lint → build → db:check → tests+coverage artifact → npm-audit (prod & full, high+) → gitleaks; Node 22 + 24 matrix; concurrency-throttled. **First green run done** (2026-11-09, repo public at github.com/gozojoseph/DevRelay); gitleaks baseline: 5 placeholder findings pinned in `.gitleaksignore`, `GITHUB_TOKEN` wired for PR scans. |
+| Dependabot | ✅ `.github/dependabot.yml` — weekly npm + GitHub Actions; minor/patch grouped, majors reviewed individually. **First wave handled (2026-11-09):** merged actions bumps #1–#4 (upload-artifact 4→7, checkout 4→7, gitleaks-action 2→3, setup-node 4→7) + pglite minor group #5 (0.3.16→0.5.15) — all CI-green, squash-merged. Held open: #7 eslint 9→10 (green, awaiting review), #8 @types/node 24→26 (green, awaiting review), #6 plugin-react 5→6 + #9 vite 7→8 (red; real breakage at install/build). |
 | Coverage | ✅ `npm run test:coverage` (report-only, no thresholds yet) — service layer `ledger`/`messaging`/`pricing` 92–100%, HTTP/route + provider adapters 0% (no HTTP-level tests yet). |
-| Git | ✅ repo initialized with baseline commit `c89f099`; GitHub remote still to be added (manual step — no `gh` CLI on this machine). |
+| Git | ✅ repo live at `github.com/gozojoseph/DevRelay` (public), `main` branch, CI green; history includes baseline `c89f099` → Neon integration `76f88f9` → CI fixes + Dependabot merges. |
 | Deferred | Error monitoring (needs vendor DSN — Phase 5), Playwright E2E (Phase 2, needs full stack), load tests (staging-only). |
 
 Upgrades were verified gate-by-gate (typecheck, lint, build, db:check, 76 tests after each major); `db:generate` re-ran to prove drizzle-kit still works under the esbuild override ("No schema changes").
@@ -60,7 +60,7 @@ Honest status: the compiled runtime paths work (typecheck + build green; servers
 
 Not yet done / intentionally blocked (see `docs/launch-checklist.md`):
 
-- [ ] First green CI run on GitHub (repo remote to be added manually).
+- [x] First green CI run on GitHub — done 2026-11-09 (repo public; run #28 after Dependabot merges).
 - [ ] Live provider verification: no real Paystack charge, Africa's Talking send, or Meta message has ever been executed — requires live credentials and the external approvals listed in the checklist (Paystack business verification, AT live access + sender approval, Meta Tech Provider verification + app review, Ghana DPC registration).
 
 No live provider sends or real charges are authorized by this checklist.
@@ -89,4 +89,4 @@ node dist/server/scripts/bootstrap-admin.js   # ADMIN_EMAIL from env → role=ad
 # until TOTP is enrolled from the dashboard — by design; no MFA enrollment was forged.
 ```
 
-Remaining after this phase: buy AI Gateway credits (`https://console.neon.tech/app/org-icy-fog-43699121/billing#ai_gateway_credits`) to unlock the 63-model catalog; enroll TOTP by first login; first green CI run (repo push pending).
+Remaining after this phase: buy AI Gateway credits (`https://console.neon.tech/app/org-icy-fog-43699121/billing#ai_gateway_credits`) to unlock the 63-model catalog; enroll TOTP by first login; review the four held Dependabot majors (#6/#9 currently red, #7/#8 green-awaiting-review).
