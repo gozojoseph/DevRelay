@@ -21,7 +21,8 @@
     "retention:run": "tsx server/scripts/retention.ts",
     "typecheck": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p web/tsconfig.json",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",
@@ -51,6 +52,7 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.1.0",
+    "@vitest/coverage-v8": "^5.1.0",
     "autoprefixer": "^10.4.21",
     "drizzle-kit": "^0.31.5",
     "eslint": "^9.38.0",

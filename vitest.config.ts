@@ -12,5 +12,13 @@ export default defineConfig({
     testTimeout: 60000,
     pool: 'forks',
     poolOptions: { forks: { singleFork: true } },
+    // Report-only coverage: thresholds come once server code coverage is
+    // measured for a while. Web/React code has no tests; limit to server.
+    coverage: {
+      provider: 'v8',
+      include: ['server/**/*.ts'],
+      exclude: ['server/types.d.ts'],
+      reporter: ['text', 'lcov'],
+    },
   },
 });

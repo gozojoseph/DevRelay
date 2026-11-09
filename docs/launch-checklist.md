@@ -11,7 +11,14 @@ in production with real accounts — not simulated.
 - [x] Migration check (`npm run db:check`) — green on PGlite
 - [x] Automated tests (`npm test`, 76 tests) — green; ledger invariants,
       idempotency, status transitions, crypto/TOTP, webhook signatures all covered
-- [ ] CI pipeline running the five gates on every push (Vitest config is ready)
+- [~] CI pipeline running the five gates on every push — workflow added
+      (`.github/workflows/ci.yml`: typecheck, lint, build, db:check, tests +
+      coverage artifact, npm-audit highs, gitleaks; Node 22 + 24 matrix).
+      Becomes ✅ at the first green run on GitHub.
+- [~] Dependency security — `npm audit` currently returns **zero** findings
+      (production and dev) after upgrading nodemailer 7→10, drizzle-orm
+      0.44→0.45, vitest 3→5 and targeted transitive overrides; maintained by
+      Dependabot (weekly) and the CI audit steps above.
 - [ ] Error/uptime alerting wired to an operator channel
 - [ ] `retention:run` scheduled (data retention window to be confirmed with counsel)
 

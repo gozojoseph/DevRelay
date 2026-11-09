@@ -60,16 +60,22 @@ Database `DATABASE_URL` can be a local Postgres or a Neon connection string.
 ## Quality gates
 
 ```powershell
-npm run typecheck   # tsc for server + web
-npm run lint        # eslint (server, web, tests)
-npm run build       # tsc emit + vite build (dist/web served by the API)
-npm run db:check    # applies migrations to a throwaway PGlite instance
-npm test            # Vitest suite (unit + integration); no live providers touched
+npm run typecheck       # tsc for server + web
+npm run lint            # eslint (server, web, tests)
+npm run build           # tsc emit + vite build (dist/web served by the API)
+npm run db:check        # applies migrations to a throwaway PGlite instance
+npm test                # Vitest suite (unit + integration); no live providers touched
+npm run test:coverage   # same suite with a v8 coverage report (report-only)
+npm audit --audit-level=high   # dependency audit; currently zero findings
 ```
 
-All five gates are currently green. Tests use an in-memory PGlite Postgres with
-the real migrations; provider credentials are stub values, and the suite never
-calls a network provider.
+All of the above are green. Tests use an in-memory PGlite Postgres with the real
+migrations; provider credentials are stub values, and the suite never calls a
+network provider.
+
+`.github/workflows/ci.yml` runs every gate (plus gitleaks secret scanning) on
+Node 22 and 24 for every push/PR once the repository is on GitHub; Dependabot
+watches npm and GitHub Actions weekly.
 
 ## Security posture (implemented)
 
