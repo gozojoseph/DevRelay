@@ -1,0 +1,13 @@
+# Gitleaks target-ignore list (fingerprint = commit:file:rule:line).
+# Every entry below is a deliberate, NON-REAL placeholder value:
+#  - tests/*.ts (generic-api-key): the documented synthetic 64-hex test fixture
+#    used as ENCRYPTION_KEY in the PGlite harness (value starts a1b2c3d4…;
+#    sequential - not a real key; real keys are 64 hex of crypto.randomBytes).
+#  - web/… (curl-auth-header): public API documentation example text with the
+#    DevRelay API-key shape `dr_live_...` — placeholder for developers, not a
+#    credential. DevRelay API keys are minted per-customer and never committed.
+76f88f9225a6e6c506f5c39c422ed1ccd17372f1:tests/config.test.ts:generic-api-key:10
+c89f099c6c4ef00dad92e799e97fc308a24e7741:tests/setup-env.ts:generic-api-key:13
+c89f099c6c4ef00dad92e799e97fc308a24e7741:web/src/pages/public/HomePage.tsx:curl-auth-header:79
+c89f099c6c4ef00dad92e799e97fc308a24e7741:web/src/pages/public/DocsPage.tsx:curl-auth-header:89
+c89f099c6c4ef00dad92e799e97fc308a24e7741:web/src/pages/public/DocsPage.tsx:curl-auth-header:126
