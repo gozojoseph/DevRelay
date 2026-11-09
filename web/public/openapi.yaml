@@ -1,0 +1,238 @@
+openapi: 3.1.0
+info:
+  title: DevRelay Messaging API
+  version: 1.0.0
+  description: |
+    Prepaid SMS and WhatsApp messaging API for Ghana-first builders. Credits are
+    funded in advance through Paystack in Ghana cedis pesewas (1 GHS = 100
+    pesewas) and every send reserves, settles or releases credits from an
+    immutable double-entry ledger.
+
+    Implementation status: this specification describes the API as implemented in
+    this repository (`server/routes/api.ts`). Live provider traffic requires the
+    environment to be configured with real Paystack, Africa's Talking and Meta
+    credentials; without them the send endpoints return 503 (`SMS_UNAVAILABLE`,
+    `WHATSAPP_UNAVAILABLE`).
+
+    Idempotency: all POST send requests require an `Idempotency-Key` header
+    (8-128 characters, `[A-Za-z0-9._:-]`). Repeating the key with the same body
+    returns the original response without charging again. Repeating the key with
+    a different body returns 409 `IDEMPOTENCY_CONFLICT`.
+
+    Rate limits: 20 write and 120 read requests per API key per minute.
+    `RateLimit-*` and `X-RateLimit-*` headers are set on every response.
+servers:
+  - url: '{protocol}://{host}/api/v1'
+    description: 'Any deployment; always served under /api/v1.'
+    variables:
+      protocol:
+        default: https
+      host:
+        default: api.devrelay.example
+security:
+  - apiKey: []
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: 'Project API key created in the DevRelay dashboard. Stored hashed; shown once at creation.'
+      bearerFormat: 'devrelay_key_*'
+  schemas:
+    Envelope:
+      type: object
+      required: [data, requestId]
+      properties:
+        data: {}
+        requestId: { type: string, format: uuid }
+    ErrorEnvelope:
+      type: object
+      required: [error, requestId]
+      properties:
+        requestId: { type: string, format: uuid }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_ERROR, UNAUTHORIZED, PROJECT_NOT_FOUND, IDEMPOTENCY_CONFLICT,
+                IDEMPOTENCY_ERROR, ACCOUNT_NOT_ACTIVE, UNSUPPORTED_COUNTRY, SENDER_NOT_APPROVED,
+                RECIPIENT_SUPPRESSED, CONSENT_REQUIRED, PRICE_UNAVAILABLE, INSUFFICIENT_CREDITS,
+                DAILY_LIMIT, RATE_LIMITED, INVALID_RECIPIENT, UNSUPPORTED_DESTINATION,
+                INVALID_MESSAGE, MESSAGE_TOO_LONG, MESSAGE_NOT_FOUND, SMS_UNAVAILABLE,
+                WHATSAPP_UNAVAILABLE, WHATSAPP_NUMBER_UNAVAILABLE, TEMPLATE_NOT_FOUND,
+                TEMPLATE_NOT_APPROVED, TEMPLATE_VARIABLES, SERVICE_WINDOW_CLOSED, INTERNAL_ERROR]
+            message: { type: string }
+    MessageAccepted:
+      type: object
+      required: [id, status, channel, recipient, segments, estimatedChargeMinor, currency, acceptedAt, note]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [queued], description: 'Accepted always means queued. Delivery is asynchronous.' }
+        channel: { type: string, enum: [sms, whatsapp] }
+        recipient: { type: string, example: '+233244000000' }
+        segments: { type: integer, minimum: 1, maximum: 12 }
+        estimatedChargeMinor: { type: integer, description: 'Pesewas reserved until the provider confirms the outcome.' }
+        currency: { type: string, enum: [GHS] }
+        acceptedAt: { type: string, format: date-time }
+        note: { type: string }
+    SmsSendRequest:
+      type: object
+      additionalProperties: false
+      required: [to, senderId, body]
+      properties:
+        to: { type: string, minLength: 8, maxLength: 24, example: '0244000000', description: 'Ghana mobile number, local or E.164. SMS supports Ghana destinations only at launch.' }
+        senderId: { type: string, minLength: 3, maxLength: 11, description: 'An approved Africa''s Talking sender ID for this account.' }
+        body: { type: string, minLength: 1, maxLength: 1600 }
+    WhatsappSendRequest:
+      type: object
+      additionalProperties: false
+      required: [to]
+      properties:
+        to: { type: string, minLength: 8, maxLength: 24, example: '+233201234567' }
+        phoneNumberId: { type: string, format: uuid, description: 'Optional: pin the sending number registered through Embedded Signup.' }
+        text: { type: string, maxLength: 4096, description: 'Free-form reply; only allowed inside the 24-hour customer service window.' }
+        template:
+          type: object
+          required: [name, language]
+          properties:
+            name: { type: string, maxLength: 180 }
+            language: { type: string, maxLength: 18 }
+            variables:
+              type: array
+              maxItems: 20
+              items: { type: string, maxLength: 1024 }
+      oneOf:
+        - required: [text]
+        - required: [template]
+    MessageList:
+      type: array
+      items:
+        type: object
+        properties:
+          id: { type: string, format: uuid }
+          channel: { type: string, enum: [sms, whatsapp] }
+          recipient: { type: string }
+          sender: { type: string }
+          status: { type: string, enum: [queued, sending, accepted, sent, delivered, read, failed, pending_reconciliation, reconciled, incoming] }
+          segments: { type: integer, nullable: true }
+          quotedMinor: { type: integer }
+          chargedMinor: { type: integer }
+          errorCode: { type: string, nullable: true }
+          createdAt: { type: string, format: date-time }
+          lastProviderAt: { type: string, format: date-time, nullable: true }
+    Balance:
+      type: object
+      properties:
+        currency: { type: string, enum: [GHS] }
+        availableMinor: { type: integer, description: 'Pesewas available to spend.' }
+        reservedMinor: { type: integer, description: 'Pesewas held by in-flight messages.' }
+paths:
+  /messages/sms:
+    post:
+      summary: Send an SMS to a Ghana mobile number
+      operationId: sendSms
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SmsSendRequest' }
+      responses:
+        '202':
+          description: Message queued (not delivered).
+          content:
+            application/json:
+              schema: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { properties: { data: { $ref: '#/components/schemas/MessageAccepted' } } }] }
+        '400': { description: Validation, recipient or message-body errors., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '402': { description: INSUFFICIENT_CREDITS., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: Account not active, unsupported country, or unapproved sender ID., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '409': { description: Idempotency conflict, missing/revoked consent, suppression or daily limit., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Daily spend/volume limit or request-rate limit., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '503': { description: SMS provider not configured or pricing unavailable yet., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+  /messages/whatsapp:
+    post:
+      summary: Send a WhatsApp template or free-form message
+      operationId: sendWhatsapp
+      description: |
+        Free-form `text` requires an inbound customer message within the last
+        24 hours (Meta customer service window). Outside that window an approved
+        `template` is required. Billing follows Meta: `delivered` messages are
+        charged according to the pricing payload processed per message; free
+        categories (`free_entry_point`, `free_customer_service`) release the
+        held estimate.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WhatsappSendRequest' }
+      responses:
+        '202':
+          description: Message queued (not delivered).
+          content:
+            application/json:
+              schema: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { properties: { data: { $ref: '#/components/schemas/MessageAccepted' } } }] }
+        '400': { description: Validation errors., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '402': { description: INSUFFICIENT_CREDITS., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: Account not active., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '404': { description: Template not found for the connection., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '409': { description: Template not approved, variable mismatch, service window closed, suppression/consent, idempotency conflict., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '429': { description: Daily or rate limit exceeded., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '503': { description: WhatsApp not configured (test/live mode) or no active sender number., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+  /messages:
+    get:
+      summary: List recent messages
+      operationId: listMessages
+      parameters:
+        - name: channel
+          in: query
+          schema: { type: string, enum: [sms, whatsapp] }
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: cursor
+          in: query
+          schema: { type: string, description: 'Opaque created-at cursor from the previous page.' }
+      responses:
+        '200':
+          description: Message page (most recent first).
+          content:
+            application/json:
+              schema: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { properties: { data: { $ref: '#/components/schemas/MessageList' } } }] }
+        '401': { description: Missing or invalid API key., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+  /messages/{id}:
+    get:
+      summary: Fetch one message with its delivery events
+      operationId: getMessage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Message detail including delivery events and billing outcome., content: { application/json: { schema: { $ref: '#/components/schemas/Envelope' } } } }
+        '404': { description: Message not found in this project., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+  /balance:
+    get:
+      summary: Prepaid credit balance
+      operationId: getBalance
+      responses:
+        '200':
+          description: Current available and reserved pesewas.
+          content:
+            application/json:
+              schema: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { properties: { data: { $ref: '#/components/schemas/Balance' } } }] }
+        '401': { description: Missing or invalid API key., content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+externalDocs:
+  description: Developer docs
+  url: /docs

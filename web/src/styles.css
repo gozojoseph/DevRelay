@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --canvas: 248 250 249;
+    --surface: 255 255 255;
+    --elevated: 242 246 244;
+    --ink: 15 23 42;
+    --muted: 71 85 105;
+    --line: 226 232 240;
+    color-scheme: light;
+  }
+  .dark {
+    --canvas: 7 12 20;
+    --surface: 13 21 33;
+    --elevated: 19 30 46;
+    --ink: 241 245 249;
+    --muted: 148 163 184;
+    --line: 32 45 62;
+    color-scheme: dark;
+  }
+  * { border-color: rgb(var(--line)); }
+  html { scroll-behavior: smooth; }
+  body {
+    @apply bg-canvas text-ink antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  ::selection { background: rgb(16 185 129 / 0.25); }
+  :focus-visible { outline: 2px solid #10b981; outline-offset: 2px; }
+  input, textarea, select, button { font: inherit; }
+}
+
+@layer components {
+  .container-page { @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8; }
+  .surface-card { @apply rounded-2xl border border-line bg-surface shadow-soft; }
+  .muted-card { @apply rounded-2xl border border-line bg-elevated; }
+  .field-label { @apply mb-1.5 block text-sm font-medium text-ink; }
+  .field-input {
+    @apply w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-sm text-ink shadow-sm outline-none
+      transition placeholder:text-muted/70 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .field-hint { @apply mt-1.5 text-xs leading-5 text-muted; }
+  .field-error { @apply mt-1.5 text-xs font-medium text-rose-600 dark:text-rose-400; }
+  .link { @apply font-medium text-brand-700 underline-offset-4 hover:underline dark:text-brand-300; }
+  .eyebrow { @apply text-xs font-semibold uppercase tracking-[0.18em] text-brand-700 dark:text-brand-300; }
+  .section-title { @apply text-2xl font-semibold tracking-tight text-ink sm:text-3xl; }
+  .section-copy { @apply mt-3 max-w-2xl text-sm leading-6 text-muted sm:text-base sm:leading-7; }
+  .grid-lines {
+    background-image:
+      linear-gradient(to right, rgb(var(--line) / 0.5) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(var(--line) / 0.5) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: linear-gradient(to bottom, black, transparent 88%);
+  }
+  .table-wrap { @apply overflow-x-auto rounded-2xl border border-line bg-surface; }
+  .data-table { @apply w-full min-w-[640px] text-left text-sm; }
+  .data-table thead { @apply bg-elevated/70 text-xs uppercase tracking-wide text-muted; }
+  .data-table th { @apply px-4 py-3 font-semibold; }
+  .data-table tbody { @apply divide-y divide-line; }
+  .data-table td { @apply px-4 py-3 align-middle; }
+  .data-table tbody tr { @apply transition-colors hover:bg-elevated/50; }
+  .prose-docs { @apply text-sm leading-7 text-muted; }
+  .prose-docs h2 { @apply mt-10 scroll-mt-24 text-xl font-semibold tracking-tight text-ink; }
+  .prose-docs h3 { @apply mt-7 scroll-mt-24 text-base font-semibold text-ink; }
+  .prose-docs p { @apply mt-3; }
+  .prose-docs ul { @apply mt-3 list-disc space-y-2 pl-5; }
+  .prose-docs ol { @apply mt-3 list-decimal space-y-2 pl-5; }
+  .prose-docs code:not(pre code) { @apply rounded-md bg-elevated px-1.5 py-0.5 font-mono text-[0.82em] text-ink; }
+  .prose-docs a { @apply font-medium text-brand-700 underline underline-offset-4 dark:text-brand-300; }
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .scrollbar-thin { scrollbar-width: thin; scrollbar-color: rgb(var(--line)) transparent; }
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}
