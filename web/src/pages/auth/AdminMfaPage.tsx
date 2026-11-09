@@ -52,12 +52,13 @@ export function AdminMfaPage() {
               <div className="flex items-center gap-2 text-sm font-semibold text-ink"><Smartphone className="h-4 w-4 text-brand-600" /> Prepare your authenticator</div>
               <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-6 text-muted">
                 <li>Keep the authenticator app open on your phone.</li>
-                <li>Generate a new secret below.</li>
+                <li>Generate your TOTP secret below.</li>
                 <li>Add the secret manually or open the setup URI.</li>
                 <li>Enter the current 6-digit code to activate MFA.</li>
               </ol>
             </div>
             <Button type="button" onClick={() => void setup()} loading={loading} className="w-full"><ShieldCheck className="h-4 w-4" /> Generate TOTP secret</Button>
+            <p className="text-center text-xs leading-5 text-muted">Already saved a DevRelay key in your app? Pressing this again shows that same key until MFA is activated &mdash; it is only replaced after you activate. Remove any <em>very old</em> DevRelay entries first so you enter the latest one.</p>
           </div>
         ) : (
           <div className="space-y-4">

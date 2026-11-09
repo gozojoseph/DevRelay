@@ -174,10 +174,18 @@ authRouter.post('/password', requireSession, requireCsrf, async (req, res) => {
 
 authRouter.post('/admin/mfa/setup', requireSession, requireCsrf, async (req, res) => {
   assert(req.actor?.role === 'admin' && !req.actor.mfaEnabled, 403, 'FORBIDDEN', 'MFA is already active or this is not an administrator.');
-  const secret = createTotpSecret();
-  await db.update(users).set({ mfaPendingEncrypted: encrypt(secret, `mfa:${req.actor.userId}`) }).where(eq(users.id, req.actor.userId));
-  const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, req.actor.userId));
-  ok(req, res, { secret, otpauthUrl: `otpauth://totp/DevRelay:${encodeURIComponent(user!.email)}?secret=${secret}&issuer=DevRelay&digits=6&period=30` });
+  const [user] = await db.select({ email: users.email, pending: users.mfaPendingEncrypted }).from(users).where(eq(users.id, req.actor.userId));
+  assert(user, 500, 'MFA_SETUP_ERROR', 'Could not load this profile. Try again.');
+  // Idempotent until confirmed: re-running setup returns the same pending secret
+  // instead of regenerating it, so an authenticator entry already scanned stays
+  // valid and re-opening the page can never strand it.
+  let secret: string | null = null;
+  if (user.pending) { try { secret = decrypt(user.pending, `mfa:${req.actor.userId}`); } catch { secret = null; } }
+  if (secret === null) {
+    secret = createTotpSecret();
+    await db.update(users).set({ mfaPendingEncrypted: encrypt(secret, `mfa:${req.actor.userId}`) }).where(eq(users.id, req.actor.userId));
+  }
+  ok(req, res, { secret, otpauthUrl: `otpauth://totp/DevRelay:${encodeURIComponent(user.email)}?secret=${secret}&issuer=DevRelay&digits=6&period=30&algorithm=SHA1` });
 });
 authRouter.post('/admin/mfa/confirm', requireSession, requireCsrf, async (req, res) => {
   assert(req.actor?.role === 'admin' && !req.actor.mfaEnabled, 403, 'FORBIDDEN', 'Admin MFA setup only.');
@@ -185,7 +193,7 @@ authRouter.post('/admin/mfa/confirm', requireSession, requireCsrf, async (req, r
   const [user] = await db.select().from(users).where(eq(users.id, req.actor.userId));
   assert(user?.mfaPendingEncrypted, 400, 'MFA_NOT_STARTED', 'Begin MFA setup first.');
   const step = validTotpStep(decrypt(user.mfaPendingEncrypted, `mfa:${user.id}`), code);
-  assert(step !== null, 400, 'MFA_INVALID', 'Invalid one-time code. Check your authenticator clock.');
+  assert(step !== null, 400, 'MFA_INVALID', 'Invalid one-time code. The entry in your authenticator must match the secret shown after the latest setup (re-run setup to see it), and your device clock must be set to automatic.');
   await db.transaction(async tx => {
     await tx.update(users).set({ mfaSecretEncrypted: user.mfaPendingEncrypted, mfaPendingEncrypted: null, mfaLastStep: step }).where(eq(users.id, user.id));
     await tx.update(sessions).set({ invalidatedAt: new Date() }).where(eq(sessions.userId, user.id));

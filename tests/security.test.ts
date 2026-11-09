@@ -65,6 +65,19 @@ describe('TOTP (admin MFA)', () => {
     expect(createTotpSecret()).toMatch(/^[A-Z2-7]{32}$/);
   });
 
+  it('matches the RFC 4226 Appendix D test vectors for the ASCII secret "12345678901234567890"', () => {
+    expect(totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 0)).toBe('755224');
+    expect(totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 1)).toBe('287082');
+    expect(totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 2)).toBe('359152');
+    expect(totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 3)).toBe('969429');
+    expect(totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 4)).toBe('338314');
+    expect(totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 5)).toBe('254676');
+    expect(totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 6)).toBe('287922');
+    expect(totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 7)).toBe('162583');
+    expect(totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 8)).toBe('399871');
+    expect(totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 9)).toBe('520489');
+  });
+
   it('stays six digits and padded for many counters', () => {
     const secret = createTotpSecret();
     for (let step = 0; step < 30_000; step += 997) {
