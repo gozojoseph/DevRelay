@@ -62,6 +62,31 @@ Not yet done / intentionally blocked (see `docs/launch-checklist.md`):
 
 - [ ] First green CI run on GitHub (repo remote to be added manually).
 - [ ] Live provider verification: no real Paystack charge, Africa's Talking send, or Meta message has ever been executed — requires live credentials and the external approvals listed in the checklist (Paystack business verification, AT live access + sender approval, Meta Tech Provider verification + app review, Ghana DPC registration).
-- [ ] Production deployment (Neon + TLS host + worker) once credentials exist.
 
 No live provider sends or real charges are authorized by this checklist.
+
+## Neon platform integration (2026-11-09)
+
+Project **DevRelay** (`blue-bird-71632066`, org `org-icy-fog-43699121`), branch **production** (`br-lingering-cell-bdevndeh`, region `aws-us-east-2` — supports all services), managed by `neon.ts` infra-as-code (auth, aiGateway, `functions.hello`, preview realtime; non-default branches expire after 7d).
+
+| Service | Status | Proof |
+| --- | --- | --- |
+| Postgres | ✅ live, schema applied | `npm run db:migrate` → 34 public tables on `neondb` (Postgres 18.6); login + `/api/auth/me` round-trip against Neon proven |
+| Functions | ✅ live | `GET https://br-lingering-cell-bdevndeh-hello.compute.c-8.us-east-2.aws.neon.tech/` → 200 `Hello from Neon Functions` |
+| Realtime | ✅ live | `neon realtime subscribe "SELECT email, role FROM users LIMIT 5"` → WebSocket connect, initial snapshot `1 row: admin` — real data |
+| AI Gateway | ⛔ **billing gate** | Catalog `63 models, 0 enabled`; `POST /v1/chat/completions` → 403 `credits_required` with recovery URL (no credits purchased yet) |
+| Neon Auth | ✅ provisioned, **not integrated by decision** | JWKS serves (`200`, 1 key). DevRelay keeps its own tested auth (cookie sessions + TOTP); swapping identity providers was never requested |
+
+App wiring: `server/config.ts` gained ten optional `NEON_*`/`DATABASE_URL_UNPOOLED` fields plus `neonAvailability()` and `neonFunctionUrl()`; `GET /api/public/status` now reports them as booleans (`neon: { postgres, neonAuth, functions, aiGateway, realtime }` — all true when env is present, secrets never leave the server). `tests/config.test.ts` covers both configured and unconfigured cases. Driver decision: **pooled** `DATABASE_URL` + `pg`/node-postgres — correct for this long-running Express host (`@neondatabase/serverless` is for serverless runtimes only).
+
+Production bring-up performed:
+
+```text
+npm run db:migrate          # applied all migrations to the Neon production branch
+node dist/server/scripts/bootstrap-admin.js   # ADMIN_EMAIL from env → role=admin row created (verified: admin + audit event)
+# API + worker booted from dist/ against Neon; /healthz 200; worker connected;
+# login → 200, /api/auth/me → 200 (admin). Admin APIs correctly return MFA_REQUIRED
+# until TOTP is enrolled from the dashboard — by design; no MFA enrollment was forged.
+```
+
+Remaining after this phase: buy AI Gateway credits (`https://console.neon.tech/app/org-icy-fog-43699121/billing#ai_gateway_credits`) to unlock the 63-model catalog; enroll TOTP by first login; first green CI run (repo push pending).

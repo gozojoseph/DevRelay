@@ -43,17 +43,28 @@ additionally requires `META_PRODUCTION_APPROVED=true` **and**
 | Africa's Talking live access | Ghana live account, partner terms, approved sender IDs |
 | Meta Tech Provider verification + app review | `whatsapp_business_messaging`, `whatsapp_business_management`, Embedded Signup config id, WABA payment method |
 | Transactional email provider | Resend/Postmark/SES/Mailgun; verify domain; SPF + DKIM + DMARC |
-| Neon production project | See below |
+| Neon production project | ✅ done — `blue-bird-71632066`, branch `production`, migrations applied (see §2.1) |
 
 ---
 
 ## 2. Infrastructure
 
-### 2.1 Neon (PostgreSQL)
+### 2.1 Neon (Lakebase Postgres)
 
-1. Create the production project (region near Ghana/Europe, e.g. `eu-west-1`/`eu-central-1`). Copy the **pooled** connection string (`…-pooler…neon.tech/neondb?sslmode=require`).
+**Current state (2026-11-09):** project `DevRelay` (`blue-bird-71632066`) is live on branch
+`production` (`br-lingering-cell-bdevndeh`, region `aws-us-east-2`), managed as code in
+`neon.ts` (+ `hello.ts` Neon Function). All migrations are applied (34 public tables);
+`DATABASE_URL` in the environment is the **pooled** endpoint, which is the right choice for
+the API/Express and worker (`@neondatabase/serverless` is only for serverless runtimes).
+`neon deploy` reconciles the branch; it also pulls `NEON_*` service env vars and warns when
+the AI Gateway has no enabled models (credits required — see
+`console.neon.tech → Billing → AI Gateway credits`). `GET /api/public/status` reports
+Neon-service configuration as booleans from `neonAvailability()`.
+
+1. Region near Ghana/Europe (e.g. `aws-eu-central-1`) is ideal; the existing project runs
+   on `aws-us-east-2`, which additionally offers Functions/AI Gateway/Realtime — keep it.
 2. Enable point-in-time recovery with ≥ 7 days history.
-3. Create a **separate branch** for staging (sandbox providers, test payments) — never rehearse against production data.
+3. Keep a **separate branch** for staging/preview (`neon.ts` gives non-default branches a 7-day TTL).
 4. Connection sizing: the API pool caps at 10 connections per process; the pooled endpoint handles fan-out. Keep `DATABASE_URL` secret.
 
 Note: the API/worker never apply migrations at runtime (by design — one place applies them, at release time).

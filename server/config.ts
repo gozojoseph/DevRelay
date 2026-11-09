@@ -19,6 +19,18 @@ const environment = z.object({
   META_GRAPH_VERSION: z.string().regex(/^v\d+\.0$/).default('v27.0'),
   META_VERIFY_TOKEN: z.string().optional(), META_PRODUCTION_APPROVED: z.enum(['true', 'false']).default('false'),
   WORKER_POLL_MS: z.coerce.number().int().min(250).max(60000).default(1500),
+  // Neon platform services (env pulled by `neon deploy`). All optional;
+  // each Neon service counts as unavailable when its env is absent.
+  DATABASE_URL_UNPOOLED: z.string().optional(),
+  NEON_BRANCH: z.string().optional(),
+  NEON_BRANCH_ID: z.string().optional(),
+  NEON_AUTH_BASE_URL: z.url().optional(),
+  NEON_AUTH_JWKS_URL: z.url().optional(),
+  NEON_FUNCTION_HOST_SUFFIX: z.string().optional(),
+  NEON_AI_GATEWAY_BASE_URL: z.url().optional(),
+  NEON_AI_GATEWAY_TOKEN: z.string().optional(),
+  NEON_REALTIME_URL: z.url().optional(),
+  NEON_REALTIME_SECRET: z.string().optional(),
 });
 
 export function readConfig(values: NodeJS.ProcessEnv = process.env) {
@@ -41,4 +53,21 @@ export function availability(c: AppConfig = config()) {
     whatsappTest: Boolean(c.META_APP_ID && c.META_APP_SECRET && c.META_CONFIG_ID && c.META_VERIFY_TOKEN),
     whatsappLive: Boolean(c.META_PRODUCTION_APPROVED === 'true' && c.NODE_ENV === 'production' && c.META_APP_ID && c.META_APP_SECRET && c.META_CONFIG_ID && c.META_VERIFY_TOKEN),
   };
+}
+
+/** Neon platform services, next to availability(): booleans only — never secrets. */
+export function neonAvailability(c: AppConfig = config()) {
+  return {
+    postgres: Boolean(c.DATABASE_URL),
+    neonAuth: Boolean(c.NEON_AUTH_BASE_URL && c.NEON_AUTH_JWKS_URL),
+    functions: Boolean(c.NEON_FUNCTION_HOST_SUFFIX),
+    aiGateway: Boolean(c.NEON_AI_GATEWAY_BASE_URL && c.NEON_AI_GATEWAY_TOKEN),
+    realtime: Boolean(c.NEON_REALTIME_URL && c.NEON_REALTIME_SECRET),
+  };
+}
+
+/** Builds a Neon Functions URL for a deploy-declared function slug. */
+export function neonFunctionUrl(c: AppConfig = config(), slug: string): string | undefined {
+  if (!c.NEON_BRANCH_ID || !c.NEON_FUNCTION_HOST_SUFFIX) return undefined;
+  return `https://${c.NEON_BRANCH_ID}-${slug}${c.NEON_FUNCTION_HOST_SUFFIX}/`;
 }

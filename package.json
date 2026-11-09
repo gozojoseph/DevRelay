@@ -14,7 +14,7 @@
     "build:web": "vite build --config web/vite.config.ts",
     "start:api": "node dist/server/index.js",
     "start:worker": "node dist/server/worker/index.js",
-  "start:migrate": "node dist/server/db/migrate.js",
+    "start:migrate": "node dist/server/db/migrate.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/db/migrate.ts",
     "db:check": "tsx server/db/check-migrations.ts",
@@ -26,6 +26,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@neon/config": "^1.13.0",
+    "@neon/env": "^2.1.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",

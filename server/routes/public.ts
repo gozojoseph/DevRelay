@@ -3,7 +3,7 @@ import { and, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
 import { platformSettings, pricingVersions, supportRequests, rateCounters } from '../db/schema.js';
-import { availability, config } from '../config.js';
+import { availability, config, neonAvailability } from '../config.js';
 import { ApiError, ok } from '../lib/http.js';
 import { sha256 } from '../lib/security.js';
 
@@ -55,6 +55,7 @@ publicRouter.get('/status', async (req, res) => {
   ok(req, res, { channels: { sms: flags.sms, whatsapp: flags.whatsappTest || flags.whatsappLive,
     funding: flags.paystack && Boolean(settings?.minimumFundingMinor) },
   whatsappMode: flags.whatsappLive ? 'production' : flags.whatsappTest ? 'test' : 'unavailable',
+  neon: neonAvailability(),
   note: 'This reports server configuration only, not upstream live delivery health.' });
 });
 

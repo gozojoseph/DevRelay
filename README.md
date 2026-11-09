@@ -6,19 +6,21 @@ records the provider outcome, and settles or releases the reservation in an
 immutable double-entry ledger. Nothing ships on simulated balances: sends are
 refused unless providers and pricing are actually configured.
 
-> **Status: implementation complete, not production-deployed.** All code paths are
-> implemented and covered by an automated test suite (76 tests, green). No live
-> Paystack, Africa's Talking or Meta transaction has ever been executed, because
-> no live credentials or provider approvals exist yet. See
-> [`docs/launch-checklist.md`](docs/launch-checklist.md) for the external
-> prerequisites that gate go-live.
+> **Status: implementation complete, running on Neon.** All code paths are
+> implemented and covered by an automated test suite (78 tests, green). The
+> database lives on the Neon platform (project `DevRelay`, `production` branch
+> via `neon.ts`) with migrations applied; API + worker boot against it and a
+> real admin account exists. No live Paystack, Africa's Talking, or Meta
+> transaction has ever been executed, because no live credentials or provider
+> approvals exist yet. See [`docs/launch-checklist.md`](docs/launch-checklist.md)
+> for the external prerequisites that gate go-live.
 
 ## Stack
 
 | Layer     | Choice                                                              |
 |-----------|---------------------------------------------------------------------|
 | Backend   | Node 22, TypeScript (NodeNext), Express                              |
-| Database  | PostgreSQL (Neon-compatible) via drizzle-orm; migrations in `drizzle/` |
+| Database  | PostgreSQL on Neon (branch-managed via `neon.ts`) via drizzle-orm over `pg`; migrations in `drizzle/` |
 | Frontend  | React 19 + Vite + TypeScript + Tailwind CSS (light/dark)             |
 | Sessions  | Cookie sessions, HTTP-only, CSRF-tokenPOSTs, MFA (TOTP) for admins   |
 | Payments  | Paystack (HMAC-SHA512-signed webhooks)                               |
