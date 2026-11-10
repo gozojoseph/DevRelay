@@ -1,6 +1,13 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
+// .env templates ship optional keys empty; an empty string must mean "unset",
+// not a validation error (z.url rejects '' and coerce.number reads it as 0,
+// failing .positive()).
+function optionalEnv<T extends z.ZodType>(schema: T) {
+  return z.preprocess(value => (value === '' || value === undefined ? undefined : value), schema);
+}
+
 const environment = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
@@ -22,10 +29,15 @@ const environment = z.object({
   PAYSTACK_WEBHOOK_SECRETS: z.string().optional(),
   AT_USERNAME: z.string().optional(), AT_API_KEY: z.string().optional(),
   AT_MODE: z.enum(['sandbox', 'live']).default('sandbox'), AT_CALLBACK_TOKEN: z.string().optional(),
-  // Alternative SMS rail (AIGH, https://aigh.dev/api/v1). SMS_PROVIDER=aigh
+  // Alternative SMS rails. aigh (https://aigh.dev/api/v1): SMS_PROVIDER=aigh
   // routes worker sends to it; availability then keys off AIGH_API_KEY alone.
-  SMS_PROVIDER: z.enum(['africastalking', 'aigh']).default('africastalking'),
+  SMS_PROVIDER: z.enum(['africastalking', 'aigh', 'sim-gateway']).default('africastalking'),
   AIGH_API_KEY: z.string().optional(), AIGH_BASE_URL: z.url().default('https://aigh.dev/api/v1'),
+  // sim-gateway (android-sms-gateway on a spare phone): local-server URL +
+  // Basic credentials from the app; the webhook signing key enables delivery
+  // callbacks (POST /api/webhooks/sms-gateway).
+  GATEWAY_URL: optionalEnv(z.url().optional()), GATEWAY_USER: z.string().optional(), GATEWAY_PASSWORD: z.string().optional(),
+  GATEWAY_SIM_NUMBER: optionalEnv(z.coerce.number().int().positive().optional()), GATEWAY_WEBHOOK_SECRET: z.string().optional(),
   META_APP_ID: z.string().optional(), META_APP_SECRET: z.string().optional(), META_CONFIG_ID: z.string().optional(),
   META_GRAPH_VERSION: z.string().regex(/^v\d+\.0$/).default('v27.0'),
   META_VERIFY_TOKEN: z.string().optional(), META_PRODUCTION_APPROVED: z.enum(['true', 'false']).default('false'),
@@ -64,12 +76,18 @@ export function readConfig(values: NodeJS.ProcessEnv = process.env) {
 export type AppConfig = ReturnType<typeof readConfig>;
 let cached: AppConfig | undefined;
 export function config() { return cached ??= readConfig(); }
+
+/** The selected SMS rail's credential requirements, per SMS_PROVIDER. */
+function smsAvailable(c: AppConfig) {
+  if (c.SMS_PROVIDER === 'aigh') return Boolean(c.AIGH_API_KEY);
+  if (c.SMS_PROVIDER === 'sim-gateway') return Boolean(c.GATEWAY_URL);
+  return Boolean(c.AT_USERNAME && c.AT_API_KEY && c.AT_CALLBACK_TOKEN && (c.NODE_ENV !== 'production' || c.AT_MODE === 'live'));
+}
+
 export function availability(c: AppConfig = config()) {
   return {
     paystack: Boolean(c.PAYSTACK_SECRET_KEY),
-    sms: c.SMS_PROVIDER === 'aigh'
-      ? Boolean(c.AIGH_API_KEY)
-      : Boolean(c.AT_USERNAME && c.AT_API_KEY && c.AT_CALLBACK_TOKEN && (c.NODE_ENV !== 'production' || c.AT_MODE === 'live')),
+    sms: smsAvailable(c),
     whatsappTest: Boolean(c.META_APP_ID && c.META_APP_SECRET && c.META_CONFIG_ID && c.META_VERIFY_TOKEN),
     whatsappLive: Boolean(c.META_PRODUCTION_APPROVED === 'true' && c.NODE_ENV === 'production' && c.META_APP_ID && c.META_APP_SECRET && c.META_CONFIG_ID && c.META_VERIFY_TOKEN),
   };

@@ -138,6 +138,52 @@ export async function processTemplateStatus(input: { connectionId: string; wabaI
   return { done: true };
 }
 
+const gatewayCallbackSchema = z.object({ event: z.string(), payload: z.object({
+  messageId: z.string().min(1), recipient: z.string().optional(), sender: z.string().nullable().optional(),
+  partsCount: z.number().int().optional(), reason: z.string().optional(),
+  sentAt: z.string().optional(), deliveredAt: z.string().optional(), failedAt: z.string().optional(),
+  cancelledAt: z.string().optional(),
+}).passthrough() }).passthrough();
+
+// Maps the Android SMS Gateway's outbound state webhooks (sms:sent/delivered/
+// failed/cancelled) onto DevRelay's delivery pipeline. The webhook route only
+// forwards those four event types; provider ids that match no DevRelay
+// message (e.g. texts sent from the phone's own app) are ignored.
+export async function processGatewayCallback(eventId: string) {
+  const [event] = await db.select().from(providerWebhookEvents).where(and(eq(providerWebhookEvents.id, eventId),
+    eq(providerWebhookEvents.provider, 'sms-gateway'))).limit(1);
+  if (!event || event.processedAt) return { done: true };
+  try {
+    const payload = gatewayCallbackSchema.safeParse(JSON.parse(event.rawPayload));
+    if (!payload.success) throw new Error('Invalid SMS gateway callback');
+    const value = payload.data;
+    const mapped = { 'sms:sent': 'sent', 'sms:delivered': 'delivered', 'sms:failed': 'failed',
+      'sms:cancelled': 'failed' }[value.event];
+    if (mapped) {
+      const rawAt = value.payload.deliveredAt ?? value.payload.sentAt ?? value.payload.failedAt ?? value.payload.cancelledAt;
+      const parsedAt = rawAt ? new Date(rawAt) : new Date();
+      const occurredAt = Number.isNaN(parsedAt.getTime()) ? new Date() : parsedAt;
+      const fingerprint = sha256(JSON.stringify({ id: value.payload.messageId, event: value.event,
+        recipient: value.payload.recipient, at: rawAt }));
+      const [message] = await db.select({ accountId: messages.accountId }).from(messages)
+        .where(and(eq(messages.channel, 'sms'), eq(messages.providerMessageId, value.payload.messageId)));
+      if (message) {
+        await applyProviderStatus({ accountId: message.accountId, provider: 'sms',
+          providerMessageId: value.payload.messageId, status: mapped, occurredAt, fingerprint,
+          details: { ...(mapped === 'failed' ? { errorCode: value.event === 'sms:cancelled' ? 'GATEWAY_CANCELLED' : 'GATEWAY_FAILED' } : {}),
+            ...(value.payload.reason ? { failureReason: value.payload.reason.slice(0, 120) } : {}),
+            ...(value.payload.partsCount ? { partsCount: value.payload.partsCount } : {}) } });
+      }
+    }
+    await db.update(providerWebhookEvents).set({ processedAt: new Date() }).where(eq(providerWebhookEvents.id, event.id));
+    return { done: true };
+  } catch (error) {
+    await db.update(providerWebhookEvents).set({ lastError: (error instanceof Error ? error.message : 'Processing failed').slice(0, 240) })
+      .where(eq(providerWebhookEvents.id, event.id));
+    throw error;
+  }
+}
+
 const atCallbackSchema = z.object({ id: z.string(), status: z.string(), phoneNumber: z.string().optional(),
   networkCode: z.string().optional(), failureReason: z.string().optional(), retryCount: z.string().optional() });
 

@@ -15,6 +15,7 @@ See `.env.example` for the full list. The important gates (from
 | Paystack funding  | `PAYSTACK_SECRET_KEY` (webhook secret optional legacy + `PAYSTACK_WEBHOOK_SECRETS`)        |
 | SMS sending       | `AT_USERNAME`, `AT_API_KEY`, `AT_CALLBACK_TOKEN`; `AT_MODE=sandbox\|live`                  |
 | SMS (alternative) | `SMS_PROVIDER=aigh` + `AIGH_API_KEY` (optional `AIGH_BASE_URL`, defaults to the vendor's)  |
+| SMS (SIM gateway) | `SMS_PROVIDER=sim-gateway` + `GATEWAY_URL` (+ app Basic creds; `GATEWAY_WEBHOOK_SECRET` enables callbacks) |
 | WhatsApp (test)   | `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`, `META_VERIFY_TOKEN`                    |
 | WhatsApp (live)   | All of the above **plus** `META_PRODUCTION_APPROVED=true` **and** `NODE_ENV=production`     |
 | Session/cookies   | `SESSION_SECRET` (≥32 chars), `ENCRYPTION_KEY` (64 hex chars = AES-256 key)                 |
@@ -90,6 +91,43 @@ covering bulk send, delivery tracking and sender-ID management.
      stays unset for AIGH sends.
    - **Sender IDs** — DevRelay's approve-first `senderRequests` gate applies
      regardless of what the provider allows.
+
+## SIM gateway (spare Android phone)
+
+Third SMS rail: an Android phone running the open-source
+[SMS Gateway for Android](https://github.com/capcom6/android-sms-gateway)
+(docs.sms-gate.app). `server/providers/sim-gateway.ts` speaks its documented
+Local Server API. A dev rail first — see the verdict below for production use.
+
+1. Select it with `SMS_PROVIDER=sim-gateway` and set `GATEWAY_URL` to the
+   app's Local Server URL (app Settings → Local Server, e.g.
+   `http://192.168.1.20:8080`), plus the app's Basic credentials
+   (`GATEWAY_USER`/`GATEWAY_PASSWORD`; both optional if the app runs without
+   auth). SMS availability then requires only `GATEWAY_URL`.
+   Optional `GATEWAY_SIM_NUMBER` pins the SIM slot on dual-SIM phones.
+2. Contract, baked into `server/providers/sim-gateway.ts`:
+   - Sends POST `{ textMessage: { text }, phoneNumbers, withDeliveryReport:
+     true }` to `{GATEWAY_URL}/message` with HTTP Basic auth.
+   - **No sender ID is ever sent** — the device's SIM number is the sender;
+     alphanumeric sender IDs are a live-aggregator feature a phone cannot
+     honor.
+   - Acceptance requires an id (`id` or `messageId`) in the response; a 2xx
+     without one is `SMS_RESPONSE_UNCERTAIN` (`pending_reconciliation`), never
+     a simulated success. 429 → retryable, 5xx/timeout → ambiguous, other
+     non-OK → rejected. Customer billing always uses DevRelay's own quote.
+3. Delivery callbacks: in the app's Settings → Webhooks set a signing key, put
+   the same key in `GATEWAY_WEBHOOK_SECRET`, and register
+   `https://<public-host>/api/webhooks/sms-gateway` in the app. DevRelay
+   verifies `X-Signature` (HMAC-SHA256 of rawBody + `X-Timestamp`, ±5 min
+   window) and maps `sms:sent/delivered/failed/cancelled` onto the delivery
+   pipeline; inbound `sms:received` is deliberately ignored (receiving is out
+   of scope). Without a public URL, sends still work — statuses honestly rest
+   at `accepted`.
+4. Verdict: fine as a **development rail or micro-volume niche** (real network,
+   real callbacks, near-zero cost), **not recommended as the primary
+   production SaaS rail** — the sender shows as a personal number, throughput
+   is ~6–10 msgs/min with carrier spam-block risk, and availability is a phone
+   on a desk, not an SLA.
 
 ## Meta WhatsApp Cloud API
 

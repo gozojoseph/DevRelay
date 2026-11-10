@@ -116,4 +116,9 @@ describe('SMS provider selection', () => {
     expect(availability(envWith({ SMS_PROVIDER: 'aigh', AIGH_API_KEY: '' })).sms).toBe(false);
     expect(availability(envWith({ SMS_PROVIDER: 'aigh', AIGH_API_KEY: 'smp_test_key' })).sms).toBe(true);
   });
+
+  it('bases SMS availability on GATEWAY_URL alone when SMS_PROVIDER=sim-gateway', () => {
+    expect(availability(envWith({ SMS_PROVIDER: 'sim-gateway', GATEWAY_URL: '' })).sms).toBe(false);
+    expect(availability(envWith({ SMS_PROVIDER: 'sim-gateway', GATEWAY_URL: 'http://192.168.1.20:8080' })).sms).toBe(true);
+  });
 });

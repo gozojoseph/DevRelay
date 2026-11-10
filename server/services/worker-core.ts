@@ -5,6 +5,7 @@ import { accounts, consentRecords, messages, senderRequests, suppressions, whats
 import { config } from '../config.js';
 import { africasTalking } from '../providers/africastalking.js';
 import { aigh } from '../providers/aigh.js';
+import { simGateway } from '../providers/sim-gateway.js';
 import { metaCloud } from '../providers/meta.js';
 import { ProviderFailure, type SmsAdapter } from '../providers/types.js';
 import { decrypt } from '../lib/security.js';
@@ -12,11 +13,12 @@ import { settleReservation } from './ledger.js';
 import { markAccepted, markFailedWithoutCharge, markPendingReconciliation, markRetryable } from './status.js';
 import { deliverWebhook } from './webhooks.js';
 import { reconcilePayment } from './payments.js';
-import { processMetaEvent, processAtCallback } from './events.js';
+import { processGatewayCallback, processMetaEvent, processAtCallback } from './events.js';
 
 /** One selected SMS rail for the whole worker (config choice, not per-message). */
 function smsAdapter(): SmsAdapter {
-  return config().SMS_PROVIDER === 'aigh' ? aigh : africasTalking;
+  const provider = config().SMS_PROVIDER;
+  return provider === 'aigh' ? aigh : provider === 'sim-gateway' ? simGateway : africasTalking;
 }
 
 async function beginDispatch(messageId: string) {
@@ -141,6 +143,7 @@ export async function processJob(job: { kind: string; payload: Record<string, un
     }
     case 'meta.webhook': return processMetaEvent(String(job.payload.eventId));
     case 'at.callback': return processAtCallback(String(job.payload.eventId));
+    case 'gateway.callback': return processGatewayCallback(String(job.payload.eventId));
     default: return { done: false, dead: true, code: 'UNKNOWN_JOB_KIND' };
   }
 }

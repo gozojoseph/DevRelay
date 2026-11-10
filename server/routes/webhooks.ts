@@ -78,3 +78,34 @@ webhookRouter.post('/africastalking/:token', express.json({ limit: '256kb' }),
     jobKind: 'at.callback', payload: {} });
   res.status(200).json({ received: true });
 });
+
+// SMS Gateway for Android delivery callbacks. The device signs each request
+// with X-Signature = HMAC-SHA256(rawBody + X-Timestamp, signing key) — see
+// docs.sms-gate.app/features/webhooks (Payload Signing).
+webhookRouter.post('/sms-gateway', express.raw({ type: 'application/json', limit: '256kb' }), async (req, res) => {
+  const c = config();
+  if (!c.GATEWAY_WEBHOOK_SECRET) throw new ApiError(503, 'SMS_GATEWAY_UNCONFIGURED', 'SMS gateway webhooks are not configured.');
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const signature = (req.header('x-signature') ?? '').trim().toLowerCase();
+  const timestamp = req.header('x-timestamp') ?? '';
+  const ageSeconds = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (!/^[0-9a-f]{64}$/.test(signature) || !Number.isFinite(ageSeconds) || ageSeconds > 300) {
+    throw new ApiError(401, 'WEBHOOK_SIGNATURE_INVALID', 'Invalid webhook signature.');
+  }
+  const expected = createHmac('sha256', c.GATEWAY_WEBHOOK_SECRET)
+    .update(Buffer.concat([raw, Buffer.from(timestamp)])).digest('hex');
+  if (!safeEqual(Buffer.from(expected), Buffer.from(signature))) {
+    throw new ApiError(401, 'WEBHOOK_SIGNATURE_INVALID', 'Invalid webhook signature.');
+  }
+  let parsed: { event?: unknown };
+  try { parsed = JSON.parse(raw.toString('utf8')) as typeof parsed; }
+  catch { throw new ApiError(400, 'WEBHOOK_INVALID', 'Invalid webhook payload.'); }
+  // Only outbound state events matter; inbound sms:received family is ignored
+  // (receiving is out of scope) alongside unknown event types.
+  if (typeof parsed.event !== 'string' || !['sms:sent', 'sms:delivered', 'sms:failed', 'sms:cancelled'].includes(parsed.event)) {
+    return res.status(200).json({ received: true, ignored: true });
+  }
+  await recordProviderEvent({ provider: 'sms-gateway', fingerprint: sha256(raw), rawPayload: raw.toString('utf8'),
+    jobKind: 'gateway.callback', payload: {} });
+  res.status(200).json({ received: true });
+});

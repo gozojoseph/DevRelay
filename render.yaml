@@ -80,6 +80,19 @@ envVarGroups:
         sync: false
       - key: AIGH_BASE_URL
         value: https://aigh.dev/api/v1
+      # SIM-gateway rail (docs/providers.md §SIM gateway): SMS_PROVIDER=sim-gateway
+      # sends through android-sms-gateway on a spare phone. Dev rail / micro-volume;
+      # the doc explains why it is not the primary production rail.
+      - key: GATEWAY_URL
+        sync: false
+      - key: GATEWAY_USER
+        sync: false
+      - key: GATEWAY_PASSWORD
+        sync: false
+      - key: GATEWAY_SIM_NUMBER
+        sync: false
+      - key: GATEWAY_WEBHOOK_SECRET
+        sync: false
       - key: META_APP_ID
         sync: false
       - key: META_APP_SECRET
