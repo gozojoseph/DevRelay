@@ -92,9 +92,65 @@ customer's build cannot starve other apps.
 
 | Phase | Deliverable | Status |
 |---|---|---|
-| H0a | User orders HostAfrica Ghana VPS (C4, 2 vCPU/4GB, ~GHS 120 first month via Flutterwave/MoMo) + claims the free `.cloud` domain | pending user |
-| H0b | Provision: Ubuntu hardening, rootless Docker, Caddy + wildcard DNS `*.apps.<domain>` + on-demand TLS, gVisor check; hello-world serves HTTPS | pending H0a |
-| H0c | Substrate decision (Coolify/Dokploy API vs custom agent) | pending H0b |
+| H0a | User orders HostAfrica Ghana VPS + claims the free `.cloud` domain | ✅ 2026-11-10: VPS = "Cloud Server - Ghana" service 208213, **1 vCPU / 1 GB / 20 GB, Debian 12**, IP 102.68.83.113 — smaller than the planned C4 2c/4 GB, recorded honestly; capacity ≈ 2–3 small apps; bigger plans are orderable via `vps/create-order` when customers arrive. First month GHS 25.20 (50% promo), then GHS 50.40/mo via Flutterwave — MoMo billing on HostAfrica proven. A duplicate order (vm881emmz, invoice 1883694 GHS 50.40 Unpaid) awaits cancellation — never pay it. The free `.cloud` domain was never claimed; the wildcard uses **devrelay.africa** (registered 2026-11-10, GHS 99) |
+| H0b | Provision: hardening, rootless Docker, Caddy + wildcard DNS + on-demand TLS, gVisor check; hello-world serves HTTPS | ✅ 2026-11-11 — done on Debian 12, see "The box" below; `https://hello.apps.devrelay.africa` serves HTTPS live from the box and from outside |
+| H0c | Substrate decision (Coolify/Dokploy API vs custom agent) | ✅ **custom agent** — decided on box facts: 1 GB RAM cannot spare Coolify/Dokploy's overhead, and the agent contract (`Host agent API` above) is already test-pinned; the agent is the only exposed service, exactly as the security posture demands |
 | H1 | Schema, API, plans, billing, jobs, renewal sweep — **this commit** (136 tests) | ✅ done |
 | H2 | Deploy pipeline end-to-end against the real agent | next |
 | H3 | Hardening + 1–2 vetted beta customers | after H2 |
+
+## The box (H0b, provisioned 2026-11-11)
+
+Host: HostAfrica "Cloud Server - Ghana", service id 208213, IP
+102.68.83.113, Debian 12 (bookworm), kernel 6.1, 1 vCPU / 947 MB usable
+RAM / 20 GB disk, 200 Mbit. Not the Ubuntu C4 2c/4 GB we originally
+specced — the user's real order was 1c/1GB; recorded, not hidden.
+
+**Access (never a password in chat or logs):** root SSH is key-only.
+The HostAfrica API is the credential path: `vps/get-encrypted-password`
+takes a **4096-bit RSA PEM public key** and returns the root password
+**RSA-OAEP-SHA256-encrypted** to it (the response's `encryption` field
+says so; the key size is validated server-side), and it also delivers an
+ed25519 private key for the VM — fetched over SFTP, never printed.
+Effective sshd: `PasswordAuthentication no`,
+`PermitRootLogin prohibit-password` via
+`/etc/ssh/sshd_config.d/00-devrelay-hardening.conf`. Gotcha recorded:
+the template ships `50-cloud-init.conf` granting root password login, and
+sshd keeps the FIRST value it reads — hence the `00-` prefix (99- loses).
+Host key pinned at first contact:
+`SHA256:iTWcKtNxSPbUybU55UbV3IWp21aSqXtqCCD8zzzn4uc=`.
+
+**Hardening done:** ufw active (in: 22/80/443; out: **25 denied** — spam
+posture), unattended-upgrades enabled, 947 MB swap present (template
+default), rootless Docker 29.9.3 under user `devrelay` (subuid
+100000:65536, linger on, cgroup delegation via
+`user@.service.d/delegation.conf`), rootful daemon disabled.
+**gVisor: NOT installed — decision recorded**: the upstream apt repo has
+no Release file and all release binary URLs 404; hardened rootless Docker
+(runc) is the fallback per the security posture above. Revisit when
+upstream restores releases.
+
+**TLS edge:** Caddy 2.10.2, tarball install, dedicated `caddy` user with
+`AmbientCapabilities=CAP_NET_BIND_SERVICE` (gotcha recorded:
+`NoNewPrivileges=true` strips file-based setcap — ambient capabilities
+are the fix). Wildcard DNS `*.apps.devrelay.africa → 102.68.83.113` was
+created through the HostAfrica DNS API (`dns/add-record`; gotchas: the
+record is a NESTED object `{record: {name, type, content, ttl}}` and
+`domain_id` is a numeric STRING `"351955"`). Certificates are per-hostname
+on-demand (HTTP-01), gated by an ask endpoint.
+
+**Ask endpoint contract (live-verified from Caddy 2.10.2 source):** Caddy
+calls `GET <ask-url>/?domain=<name>` — the domain is a **QUERY PARAMETER,
+not a path segment**. The ask server (`devrelay-ask.service`, python3)
+answers 200 only if `/var/lib/devrelay/allowed-domains/<name>` exists;
+everything else → 404 → Caddy refuses to issue. A path-based file server
+here silently returned its directory listing (200) for every domain,
+issuing certs for arbitrary names — caught by testing a NEGATIVE case,
+fixed, and the stray certs revoked. Honest lesson: an allow-list is only
+real if its denial path is actually exercised. H2's host agent will own
+this allow-list, answering from the `hosted_apps` table.
+
+**Hello-world proof:** `traefik/whoami` running rootless, published to
+127.0.0.1:8080, Caddy reverse-proxying — `https://hello.apps.devrelay.africa`
+returns 200 from the box AND from an outside network; unapproved names
+fail at the TLS handshake (fail-closed).
