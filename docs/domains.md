@@ -66,6 +66,11 @@ etc. need a separate local registrar flow later.
 
 ## Go-live checklist (in order)
 
+> Boot guard: a **sandbox URL is refused at production boot** (test-pinned in
+> `tests/config.test.ts`, same pattern as the AT/Mailtrap gates) — a sandbox
+> "registers" nothing real, so it must never serve live customers. Sandbox
+> credentials live in local `.env` only.
+
 1. **Sandbox probe (blocks availability + renewal pinning)** — create the
    free sandbox account (resellerclub.com/sandbox-signup), paste
    `X-User-Id` + API key, then live-probe `/domains/available` with an

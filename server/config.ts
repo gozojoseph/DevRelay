@@ -85,6 +85,12 @@ export function readConfig(values: NodeJS.ProcessEnv = process.env) {
     }
     if (env.EMAIL_MODE === 'mailtrap' && env.MAILTRAP_USE_SANDBOX === 'true') throw new Error('Mailtrap sandbox cannot send from production');
     if (env.AT_MODE === 'sandbox' && env.AT_API_KEY) throw new Error('AT sandbox credentials cannot send from production');
+    // ResellerClub sandbox must never serve production: a sandbox "registers"
+    // nothing real, so a live customer could pay real GHS for a domain that
+    // never exists. Sandbox credentials live in local .env only.
+    if (env.DOMAIN_RESELLER_URL?.includes('sandbox')) {
+      throw new Error('ResellerClub sandbox URL cannot serve production: real registrations would silently not happen');
+    }
   }
   return env;
 }

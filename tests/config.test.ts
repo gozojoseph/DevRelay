@@ -102,6 +102,18 @@ describe('production email delivery gate', () => {
     expect(() => envWith({ ...prod, AT_MODE: 'sandbox', EMAIL_MODE: 'smtp', SMTP_HOST: 'smtp.gmail.com', EMAIL_FROM: 'no-reply@devrelay.example.com' }))
       .toThrow(/AT sandbox/i);
   });
+
+  it('never allows the ResellerClub sandbox URL in production (customers must never pay for unreal domains)', () => {
+    expect(() => envWith({ ...prod, EMAIL_MODE: 'smtp', SMTP_HOST: 'smtp.gmail.com', EMAIL_FROM: 'no-reply@devrelay.example.com',
+      DOMAIN_RESELLER_URL: 'https://api.sandbox.resellerclub.com/v2', DOMAIN_RESELLER_USERNAME: 'u', DOMAIN_RESELLER_API_KEY: 'k' }))
+      .toThrow(/sandbox/i);
+  });
+
+  it('accepts the live ResellerClub URL in production', () => {
+    const c = envWith({ ...prod, EMAIL_MODE: 'smtp', SMTP_HOST: 'smtp.gmail.com', EMAIL_FROM: 'no-reply@devrelay.example.com',
+      DOMAIN_RESELLER_URL: 'https://api.resellerclub.com/v2', DOMAIN_RESELLER_USERNAME: 'u', DOMAIN_RESELLER_API_KEY: 'k' });
+    expect(c.DOMAIN_RESELLER_URL).toBe('https://api.resellerclub.com/v2');
+  });
 });
 
 describe('SMS provider selection', () => {
