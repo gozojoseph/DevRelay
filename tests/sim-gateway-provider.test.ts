@@ -2,10 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The adapter reads config() lazily at send time; seed the gateway settings
 // before the first import so the cached config sees them. The trailing slash
-// proves the adapter normalizes the base URL.
+// proves the adapter normalizes the base URL. GATEWAY_SIM_NUMBER is forced
+// empty: the developer's local .env (which pins a real SIM slot) must not
+// decide the asserted request body.
 process.env.GATEWAY_URL = 'http://192.168.1.20:8080/';
 process.env.GATEWAY_USER = 'devrelay';
 process.env.GATEWAY_PASSWORD = 'gateway-pass';
+process.env.GATEWAY_SIM_NUMBER = '';
 
 const { simGateway } = await import('../server/providers/sim-gateway.js');
 

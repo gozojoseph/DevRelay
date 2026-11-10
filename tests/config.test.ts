@@ -9,11 +9,12 @@ function envWith(extra: Record<string, string>) {
     SESSION_SECRET: 'test-session-secret-ab-cdef-ghij-klmn',
     ENCRYPTION_KEY: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2',
   };
-  // config.ts loads the repo .env via dotenv — strip Neon vars so the
-  // "unconfigured" case is deterministic regardless of the local machine.
+  // config.ts loads the repo .env via dotenv — strip Neon vars and the dev
+  // machine's provider choice so the "unconfigured" cases are deterministic
+  // regardless of the local machine.
   const cleaned: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (value === undefined || key.startsWith('NEON_') || key === 'DATABASE_URL_UNPOOLED') continue;
+    if (value === undefined || key.startsWith('NEON_') || key === 'DATABASE_URL_UNPOOLED' || key === 'SMS_PROVIDER') continue;
     cleaned[key] = value;
   }
   return readConfig({ ...cleaned, ...base, ...extra });
@@ -120,5 +121,10 @@ describe('SMS provider selection', () => {
   it('bases SMS availability on GATEWAY_URL alone when SMS_PROVIDER=sim-gateway', () => {
     expect(availability(envWith({ SMS_PROVIDER: 'sim-gateway', GATEWAY_URL: '' })).sms).toBe(false);
     expect(availability(envWith({ SMS_PROVIDER: 'sim-gateway', GATEWAY_URL: 'http://192.168.1.20:8080' })).sms).toBe(true);
+  });
+
+  it('bases SMS availability on the Arkesel key alone when SMS_PROVIDER=arkesel', () => {
+    expect(availability(envWith({ SMS_PROVIDER: 'arkesel', ARKESEL_API_KEY: '' })).sms).toBe(false);
+    expect(availability(envWith({ SMS_PROVIDER: 'arkesel', ARKESEL_API_KEY: 'ark_test_key' })).sms).toBe(true);
   });
 });

@@ -93,6 +93,12 @@ envVarGroups:
         sync: false
       - key: GATEWAY_WEBHOOK_SECRET
         sync: false
+      # Arkesel SMS rail (docs/providers.md §Arkesel): SMS_PROVIDER=arkesel.
+      # Live prepaid account — fund credits and register the sender ID first.
+      - key: ARKESEL_API_KEY
+        sync: false
+      - key: ARKESEL_BASE_URL
+        value: https://sms.arkesel.com/api/v2
       - key: META_APP_ID
         sync: false
       - key: META_APP_SECRET

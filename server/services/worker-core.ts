@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { africasTalking } from '../providers/africastalking.js';
 import { aigh } from '../providers/aigh.js';
 import { simGateway } from '../providers/sim-gateway.js';
+import { arkesel } from '../providers/arkesel.js';
 import { metaCloud } from '../providers/meta.js';
 import { ProviderFailure, type SmsAdapter } from '../providers/types.js';
 import { decrypt } from '../lib/security.js';
@@ -18,7 +19,8 @@ import { processGatewayCallback, processMetaEvent, processAtCallback } from './e
 /** One selected SMS rail for the whole worker (config choice, not per-message). */
 function smsAdapter(): SmsAdapter {
   const provider = config().SMS_PROVIDER;
-  return provider === 'aigh' ? aigh : provider === 'sim-gateway' ? simGateway : africasTalking;
+  return provider === 'aigh' ? aigh : provider === 'sim-gateway' ? simGateway
+    : provider === 'arkesel' ? arkesel : africasTalking;
 }
 
 async function beginDispatch(messageId: string) {

@@ -16,6 +16,7 @@ See `.env.example` for the full list. The important gates (from
 | SMS sending       | `AT_USERNAME`, `AT_API_KEY`, `AT_CALLBACK_TOKEN`; `AT_MODE=sandbox\|live`                  |
 | SMS (alternative) | `SMS_PROVIDER=aigh` + `AIGH_API_KEY` (optional `AIGH_BASE_URL`, defaults to the vendor's)  |
 | SMS (SIM gateway) | `SMS_PROVIDER=sim-gateway` + `GATEWAY_URL` (+ app Basic creds; `GATEWAY_WEBHOOK_SECRET` enables callbacks) |
+| SMS (Arkesel)     | `SMS_PROVIDER=arkesel` + `ARKESEL_API_KEY` (optional `ARKESEL_BASE_URL`, defaults to the vendor's)       |
 | WhatsApp (test)   | `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`, `META_VERIFY_TOKEN`                    |
 | WhatsApp (live)   | All of the above **plus** `META_PRODUCTION_APPROVED=true` **and** `NODE_ENV=production`     |
 | Session/cookies   | `SESSION_SECRET` (≥32 chars), `ENCRYPTION_KEY` (64 hex chars = AES-256 key)                 |
@@ -128,6 +129,36 @@ Local Server API. A dev rail first — see the verdict below for production use.
    production SaaS rail** — the sender shows as a personal number, throughput
    is ~6–10 msgs/min with carrier spam-block risk, and availability is a phone
    on a desk, not an SLA.
+
+## Arkesel (Ghana SMS)
+
+Fourth SMS rail and the current cost leader for Ghana routes — verified vendor
+pricing (Nov 2026): ~GHS 0.022–0.031 per SMS depending on the prepaid bundle
+(vs DevRelay's 5p customer price), expiry in 3 months on the cheap tiers or
+no-expiry at slightly higher per-unit. A live account from day one — no
+sandbox-mode gate applies.
+
+1. Sign up at account.arkesel.com, create an API key (dashboard → API keys),
+   then set `SMS_PROVIDER=arkesel` + `ARKESEL_API_KEY` (`ARKESEL_BASE_URL`
+   defaults to the documented `https://sms.arkesel.com/api/v2`). Availability
+   requires only the key. Fund credits before real sends (free test credits
+   are included at signup).
+2. Contract, baked into `server/providers/arkesel.ts`:
+   - Sends POST `{ sender, message, recipients: [<one>] }` to
+     `{ARKESEL_BASE_URL}/sms/send` with the vendor's `api-key` header. The
+     approved sender ID is honored (unlike the SIM rail).
+   - Success requires `status: 'success'` **and** an extractable `data.id`;
+     a named failure envelope or non-OK status is a definite rejection
+     (`SMS_PROVIDER_REJECTED`), a success without an id is honestly ambiguous
+     (`SMS_RESPONSE_UNCERTAIN`), 429 → retryable, 5xx/timeout → ambiguous.
+     `credits_used` is never converted to money — a credit's GHS value depends
+     on the buyer's bundle tier.
+3. Sender IDs: register the approved sender (e.g. "Affordable") in the Arkesel
+   dashboard and wait for approval — Ghana's sender-ID regulation applies to
+   every aggregator.
+4. Delivery webhooks: advertised by the vendor, but the payload/signature spec
+   is not machine-readable yet (developers.arkesel.com is a JS portal). Sends
+   honestly rest at `accepted` until that contract is wired.
 
 ## Meta WhatsApp Cloud API
 

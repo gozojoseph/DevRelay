@@ -31,8 +31,11 @@ const environment = z.object({
   AT_MODE: z.enum(['sandbox', 'live']).default('sandbox'), AT_CALLBACK_TOKEN: z.string().optional(),
   // Alternative SMS rails. aigh (https://aigh.dev/api/v1): SMS_PROVIDER=aigh
   // routes worker sends to it; availability then keys off AIGH_API_KEY alone.
-  SMS_PROVIDER: z.enum(['africastalking', 'aigh', 'sim-gateway']).default('africastalking'),
+  SMS_PROVIDER: z.enum(['africastalking', 'aigh', 'sim-gateway', 'arkesel']).default('africastalking'),
   AIGH_API_KEY: z.string().optional(), AIGH_BASE_URL: z.url().default('https://aigh.dev/api/v1'),
+  // arkesel (arkesel.com, Ghana): live prepaid rail, cheapest verified Ghana
+  // route; availability keys off ARKESEL_API_KEY alone.
+  ARKESEL_API_KEY: z.string().optional(), ARKESEL_BASE_URL: z.url().default('https://sms.arkesel.com/api/v2'),
   // sim-gateway (android-sms-gateway on a spare phone): local-server URL +
   // Basic credentials from the app; the webhook signing key enables delivery
   // callbacks (POST /api/webhooks/sms-gateway).
@@ -81,6 +84,7 @@ export function config() { return cached ??= readConfig(); }
 function smsAvailable(c: AppConfig) {
   if (c.SMS_PROVIDER === 'aigh') return Boolean(c.AIGH_API_KEY);
   if (c.SMS_PROVIDER === 'sim-gateway') return Boolean(c.GATEWAY_URL);
+  if (c.SMS_PROVIDER === 'arkesel') return Boolean(c.ARKESEL_API_KEY);
   return Boolean(c.AT_USERNAME && c.AT_API_KEY && c.AT_CALLBACK_TOKEN && (c.NODE_ENV !== 'production' || c.AT_MODE === 'live'));
 }
 
