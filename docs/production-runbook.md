@@ -108,6 +108,17 @@ with `FOR UPDATE SKIP LOCKED` + leases, so extra workers are safe.
 
 ### 2.4 Render.com quickstart
 
+> **Incident note (first deploy, 2026-11-10):** leaving the blueprint's
+> "unresolved properties" form empty provisions the `devrelay-production`
+> env-var group with no values. The container then crush-loops at boot with
+> zod errors — `expected string, received undefined` for
+> `DATABASE_URL`/`APP_ORIGIN`/`PUBLIC_API_URL`/`SESSION_SECRET`/`ENCRYPTION_KEY`
+> — raised from `readConfig` before any route starts. Fix: set every required
+> value on the **service's own Environment tab** (service-level variables
+> override an emptied group) and Render redeploys automatically on save.
+> Keep `APP_ORIGIN`/`PUBLIC_API_URL` byte-exact with the real `*.onrender.com`
+> subdomain (top of the service page), both `https://`.
+
 Blueprint → connect the GitHub repo → Render generates the API (web) from
 `render.yaml`, then fill the `sync: false` values in the dashboard.
 `preDeployCommand` on the API applies migrations before the new release serves
