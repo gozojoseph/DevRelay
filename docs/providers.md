@@ -147,12 +147,15 @@ sandbox-mode gate applies.
    - Sends POST `{ sender, message, recipients: [<one>] }` to
      `{ARKESEL_BASE_URL}/sms/send` with the vendor's `api-key` header. The
      approved sender ID is honored (unlike the SIM rail).
-   - Success requires `status: 'success'` **and** an extractable `data.id`;
-     a named failure envelope or non-OK status is a definite rejection
-     (`SMS_PROVIDER_REJECTED`), a success without an id is honestly ambiguous
-     (`SMS_RESPONSE_UNCERTAIN`), 429 → retryable, 5xx/timeout → ambiguous.
-     `credits_used` is never converted to money — a credit's GHS value depends
-     on the buyer's bundle tier.
+   - **Live-verified (2026-11-10):** the real API answers 200 with
+     `{ status: 'success', data: [{ id, recipient }], main_balance, sms_balance }`
+     — an *array* of per-recipient results, unlike the object shown in the
+     vendor's samples; the adapter accepts both shapes and matches the echoed
+     recipient (digits only). Success requires `status: 'success'` **and** an
+     extractable id; a named failure envelope or non-OK status is a definite
+     rejection (`SMS_PROVIDER_REJECTED`), a success without an id is honestly
+     ambiguous (`SMS_RESPONSE_UNCERTAIN`), 429 → retryable, 5xx/timeout →
+     ambiguous. Balances are never converted to ledger money.
 3. Sender IDs: register the approved sender (e.g. "Affordable") in the Arkesel
    dashboard and wait for approval — Ghana's sender-ID regulation applies to
    every aggregator.

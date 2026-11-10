@@ -17,10 +17,11 @@ describe('Arkesel SMS adapter', () => {
   afterEach(() => { vi.unstubAllGlobals(); });
 
   it('posts the documented contract with the api-key header and honored sender', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ status: 'success', data: { id: 'msg_9f8k2j', credits_used: 1 } }));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      status: 'success', data: [{ id: '16be1014-ed0e-48f4-837d-82fc567693bd', recipient: '233201234567' }],
+      main_balance: 0.2, sms_balance: 9 }));
     vi.stubGlobal('fetch', fetchMock);
-    await expect(arkesel.send(sendArgs)).resolves.toEqual({ id: 'msg_9f8k2j' });
+    await expect(arkesel.send(sendArgs)).resolves.toEqual({ id: '16be1014-ed0e-48f4-837d-82fc567693bd' });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://sms.arkesel.com/api/v2/sms/send');
     expect(init.method).toBe('POST');
@@ -29,8 +30,21 @@ describe('Arkesel SMS adapter', () => {
       sender: 'Affordable', message: 'hello', recipients: ['+233201234567'] });
   });
 
+  it('also accepts the docs\' object data shape (vendor samples vs live API drift)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      jsonResponse({ status: 'success', data: { id: 'msg_9f8k2j', credits_used: 1 } })));
+    await expect(arkesel.send(sendArgs)).resolves.toEqual({ id: 'msg_9f8k2j' });
+  });
+
+  it('picks the entry echoing the recipient when several are returned', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ status: 'success', data: [
+      { id: 'other-1', recipient: '233244000000' }, { id: 'the-one', recipient: '233201234567' } ] })));
+    await expect(arkesel.send(sendArgs)).resolves.toEqual({ id: 'the-one' });
+  });
+
   it('never invents an id when the success payload has none', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ status: 'success', data: {} })));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      jsonResponse({ status: 'success', data: [{ recipient: '233201234567' }] })));
     await expect(arkesel.send(sendArgs))
       .rejects.toMatchObject({ kind: 'ambiguous', publicCode: 'SMS_RESPONSE_UNCERTAIN' });
   });
