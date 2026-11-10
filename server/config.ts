@@ -22,6 +22,10 @@ const environment = z.object({
   PAYSTACK_WEBHOOK_SECRETS: z.string().optional(),
   AT_USERNAME: z.string().optional(), AT_API_KEY: z.string().optional(),
   AT_MODE: z.enum(['sandbox', 'live']).default('sandbox'), AT_CALLBACK_TOKEN: z.string().optional(),
+  // Alternative SMS rail (AIGH, https://aigh.dev/api/v1). SMS_PROVIDER=aigh
+  // routes worker sends to it; availability then keys off AIGH_API_KEY alone.
+  SMS_PROVIDER: z.enum(['africastalking', 'aigh']).default('africastalking'),
+  AIGH_API_KEY: z.string().optional(), AIGH_BASE_URL: z.url().default('https://aigh.dev/api/v1'),
   META_APP_ID: z.string().optional(), META_APP_SECRET: z.string().optional(), META_CONFIG_ID: z.string().optional(),
   META_GRAPH_VERSION: z.string().regex(/^v\d+\.0$/).default('v27.0'),
   META_VERIFY_TOKEN: z.string().optional(), META_PRODUCTION_APPROVED: z.enum(['true', 'false']).default('false'),
@@ -63,7 +67,9 @@ export function config() { return cached ??= readConfig(); }
 export function availability(c: AppConfig = config()) {
   return {
     paystack: Boolean(c.PAYSTACK_SECRET_KEY),
-    sms: Boolean(c.AT_USERNAME && c.AT_API_KEY && c.AT_CALLBACK_TOKEN && (c.NODE_ENV !== 'production' || c.AT_MODE === 'live')),
+    sms: c.SMS_PROVIDER === 'aigh'
+      ? Boolean(c.AIGH_API_KEY)
+      : Boolean(c.AT_USERNAME && c.AT_API_KEY && c.AT_CALLBACK_TOKEN && (c.NODE_ENV !== 'production' || c.AT_MODE === 'live')),
     whatsappTest: Boolean(c.META_APP_ID && c.META_APP_SECRET && c.META_CONFIG_ID && c.META_VERIFY_TOKEN),
     whatsappLive: Boolean(c.META_PRODUCTION_APPROVED === 'true' && c.NODE_ENV === 'production' && c.META_APP_ID && c.META_APP_SECRET && c.META_CONFIG_ID && c.META_VERIFY_TOKEN),
   };

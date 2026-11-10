@@ -2,15 +2,22 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { accounts, consentRecords, messages, senderRequests, suppressions, whatsappConnections,
   whatsappNumbers } from '../db/schema.js';
+import { config } from '../config.js';
 import { africasTalking } from '../providers/africastalking.js';
+import { aigh } from '../providers/aigh.js';
 import { metaCloud } from '../providers/meta.js';
-import { ProviderFailure } from '../providers/types.js';
+import { ProviderFailure, type SmsAdapter } from '../providers/types.js';
 import { decrypt } from '../lib/security.js';
 import { settleReservation } from './ledger.js';
 import { markAccepted, markFailedWithoutCharge, markPendingReconciliation, markRetryable } from './status.js';
 import { deliverWebhook } from './webhooks.js';
 import { reconcilePayment } from './payments.js';
 import { processMetaEvent, processAtCallback } from './events.js';
+
+/** One selected SMS rail for the whole worker (config choice, not per-message). */
+function smsAdapter(): SmsAdapter {
+  return config().SMS_PROVIDER === 'aigh' ? aigh : africasTalking;
+}
 
 async function beginDispatch(messageId: string) {
   return db.transaction(async tx => {
@@ -54,7 +61,7 @@ export async function processSmsSend(messageId: string) {
   }
   const body = message.bodyEncrypted ? decrypt(message.bodyEncrypted, `message:${message.accountId}`) : '';
   try {
-    const result = await africasTalking.send({ recipient: message.recipient, sender: message.sender, body });
+    const result = await smsAdapter().send({ recipient: message.recipient, sender: message.sender, body });
     await markAccepted({ messageId: message.id, providerMessageId: result.id,
       supplierCostMinor: result.supplierCostMinor, supplierCurrency: result.supplierCurrency });
     return { done: true };

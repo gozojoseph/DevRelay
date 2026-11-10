@@ -72,6 +72,14 @@ envVarGroups:
         value: live
       - key: AT_CALLBACK_TOKEN
         sync: false
+      # Alternative SMS rail (docs/providers.md §AIGH): SMS_PROVIDER=aigh
+      # switches the worker to AIGH and needs only AIGH_API_KEY.
+      - key: SMS_PROVIDER
+        value: africastalking
+      - key: AIGH_API_KEY
+        sync: false
+      - key: AIGH_BASE_URL
+        value: https://aigh.dev/api/v1
       - key: META_APP_ID
         sync: false
       - key: META_APP_SECRET

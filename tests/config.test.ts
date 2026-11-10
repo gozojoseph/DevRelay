@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { neonAvailability, neonFunctionUrl, readConfig } from '../server/config.js';
+import { availability, neonAvailability, neonFunctionUrl, readConfig } from '../server/config.js';
 
 function envWith(extra: Record<string, string>) {
   const base: Record<string, string> = {
@@ -100,5 +100,20 @@ describe('production email delivery gate', () => {
   it('still refuses AT sandbox keys in production (unchanged predecessor gate)', () => {
     expect(() => envWith({ ...prod, AT_MODE: 'sandbox', EMAIL_MODE: 'smtp', SMTP_HOST: 'smtp.gmail.com', EMAIL_FROM: 'no-reply@devrelay.example.com' }))
       .toThrow(/AT sandbox/i);
+  });
+});
+
+describe('SMS provider selection', () => {
+  it('defaults to Africa\'s Talking and keeps its credential requirements', () => {
+    const c = envWith({});
+    expect(c.SMS_PROVIDER).toBe('africastalking');
+    // setup-env seeds AT stubs, so dev/test availability stays true.
+    expect(availability(c).sms).toBe(true);
+  });
+
+  it('bases SMS availability on the AIGH key alone when SMS_PROVIDER=aigh', () => {
+    // Force the key empty: the developer's local .env must not decide the outcome.
+    expect(availability(envWith({ SMS_PROVIDER: 'aigh', AIGH_API_KEY: '' })).sms).toBe(false);
+    expect(availability(envWith({ SMS_PROVIDER: 'aigh', AIGH_API_KEY: 'smp_test_key' })).sms).toBe(true);
   });
 });

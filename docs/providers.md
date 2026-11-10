@@ -14,6 +14,7 @@ See `.env.example` for the full list. The important gates (from
 |-------------------|------------------------------------------------------------------------------------------|
 | Paystack funding  | `PAYSTACK_SECRET_KEY` (webhook secret optional legacy + `PAYSTACK_WEBHOOK_SECRETS`)        |
 | SMS sending       | `AT_USERNAME`, `AT_API_KEY`, `AT_CALLBACK_TOKEN`; `AT_MODE=sandbox\|live`                  |
+| SMS (alternative) | `SMS_PROVIDER=aigh` + `AIGH_API_KEY` (optional `AIGH_BASE_URL`, defaults to the vendor's)  |
 | WhatsApp (test)   | `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`, `META_VERIFY_TOKEN`                    |
 | WhatsApp (live)   | All of the above **plus** `META_PRODUCTION_APPROVED=true` **and** `NODE_ENV=production`     |
 | Session/cookies   | `SESSION_SECRET` (≥32 chars), `ENCRYPTION_KEY` (64 hex chars = AES-256 key)                 |
@@ -53,6 +54,38 @@ See `.env.example` for the full list. The important gates (from
    (`readConfig` guard).
 5. Sender IDs are managed in `senderRequests` (status `approved` before any
    send). Admin approves them in the admin console.
+
+## AIGH (alternative SMS provider)
+
+Optional second SMS rail, implemented from the vendor overview
+(aigh.dev, Nov 2026): base `https://aigh.dev/api/v1`, `Authorization: Bearer`
+keys (`smp_` prefix for SMS, `wap_` for WhatsApp), a uniform
+`{ success, message, data }` envelope, `GET /sms/balance`, and an SMS family
+covering bulk send, delivery tracking and sender-ID management.
+
+1. Select it with `SMS_PROVIDER=aigh` and set `AIGH_API_KEY` (`AIGH_BASE_URL`
+   defaults to the documented base URL). SMS availability then requires only
+   the key — the AT sandbox production gate does not apply because AIGH
+   documents no sandbox key format.
+2. Honest contract, baked into `server/providers/aigh.ts`:
+   - Sends POST `{ to, from, message }` to `/sms/send` — **provisional**: the
+     overview names no send path or field names. A mismatch fails as
+     `SMS_PROVIDER_REJECTED` / `SMS_RESPONSE_UNCERTAIN`, never a simulated
+     send.
+   - Success requires the documented `{ success: true, data }` envelope with
+     an extractable provider message id; otherwise the message lands in
+     `pending_reconciliation`. Customer billing always uses DevRelay's own
+     quote — the provider response never defines customer cost.
+   - HTTP mapping mirrors the AT adapter: 429 → retryable, 5xx/timeout →
+     ambiguous, other non-OK or `success: false` → rejected.
+3. Blocked until AIGH publishes its full reference:
+   - **Delivery callbacks** — no webhook payload or signature scheme is
+     documented, so AIGH messages stop at `sent` (provider-accepted) with no
+     delivered/failed terminal events.
+   - **Supplier cost** — no cost fields are documented, so `supplierCostMinor`
+     stays unset for AIGH sends.
+   - **Sender IDs** — DevRelay's approve-first `senderRequests` gate applies
+     regardless of what the provider allows.
 
 ## Meta WhatsApp Cloud API
 
