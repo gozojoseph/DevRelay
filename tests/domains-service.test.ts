@@ -33,7 +33,7 @@ afterAll(closeTestDb);
 
 const registrant = {
   firstName: 'Ama', lastName: 'Mensah', email: 'ama@example.test', phone: '+233244000000',
-  country: 'GH', city: 'Accra', postalCode: 'GA-184', addressLine: '12 Test Street',
+  country: 'GH', city: 'Accra', state: 'Greater Accra', postalCode: 'GA-184', addressLine: '12 Test Street',
 };
 
 const YEAR_MS = 365 * 86_400_000;

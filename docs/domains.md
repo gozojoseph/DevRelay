@@ -8,17 +8,22 @@ sandbox, replacing the HostAfrica reseller program whose package was never
 purchased (order left pending after payment). The HostAfrica Ghana VPS stays
 for DevRelay Cloud hosting; only the domain supply changed.
 
-## Supplier contract (vendor-documented, fetched 2026-11-10)
+## Supplier contract (live-verified + vendor-documented, 2026-11-10)
 
 Everything below is from ResellerClub's own developer portal
-(developer.resellerclub.com guides + the OpenAPI spec it serves) and the
-vendor quickstart — nothing is guessed. Pinned in
+(developer.resellerclub.com guides + the OpenAPI spec it serves) AND a
+**live sandbox probe with the real API** (2026-11-10, marked LIVE-VERIFIED
+below — the probe corrected the spec twice). Pinned in
 `server/providers/domain-reseller.ts`.
 
-**Auth — both headers on EVERY request:**
+**Auth — both headers on EVERY request (LIVE-VERIFIED):**
 
 - `Authorization: ApiKey <api key>`
 - `X-User-Id: <reseller user id>`
+
+Wrong credentials answer 401; a real key on a transient-failing backend can
+answer 503 "API service transport failure" (observed, resolved on retry —
+the adapter maps it to ambiguous/retry, which is exactly right).
 
 **Environments** (selected by `DOMAIN_RESELLER_URL`):
 
@@ -29,13 +34,13 @@ vendor quickstart — nothing is guessed. Pinned in
 
 | Call | Contract |
 |---|---|
-| `GET /domains/available?domainName=<sld>&tlds=<tld>` | → `{domains:[{domainName, classkey, status, cost[], error}]}`. `status` is a free string in the spec — only `available` is trusted (`KNOWN_AVAILABLE`); anything unrecognized is AMBIGUOUS (502), never a guessed boolean. `cost[]` carries per-TLD pricing → the sandbox probe pins real costs. |
-| `POST /customers` | → `{customerId}`; random username + password generated per registrant (orphan customers cost nothing) |
-| `POST /contacts` | → `{contactId}`; ONE contact is reused for all four roles, as the vendor quickstart instructs |
-| `POST /domains` | register. Required: `domainName, years, customerId, regContactId, adminContactId, techContactId, billingContactId, invoiceOption, autoRenew`. `ns` is NOT required — omitted, nameserver management is a later phase. Response `status`: `Success` or `PendingDomainVerification`; both mean submitted. |
-| `GET /actions/search-current?orderId=<id>&size=10&page=1` | → `{actions:[{orderId, actionType, actionStatus, actionStatusDesc}]}`. Quickstart `actionStatus` values: `Added · Being Processed · Completed · Failed` (not enumerated in the spec → unknown values are treated as still processing). |
-| `POST /domains/{orderId}/renew` | `{years, expDate, invoiceOption, autoRenew}` where `expDate` is the domain's current expiry as epoch SECONDS — the vendor's own idempotency guard: a stale retry is rejected at the registrar instead of double-renewing. |
-| `GET /domains/by-name/{name}` | order details; **404 = the domain is not under this reseller account** (a clean answer, not an error) |
+| `GET /domains/available?domainName=<sld>&tlds=<tld>` | → `{domains:[{domainName, classkey?, status, cost[], error?}]}`. **LIVE-VERIFIED vocabulary**: free `.com` → `status:"available"`; taken → `status:"regthroughothers"` (`classkey:"domcno"`); **`"unknown"` is a REAL value meaning "not evaluated"** (sandbox ccTLD lookups) — the adapter answers ambiguous 502 for it, never a guessed boolean. Sandbox `cost[]` comes back EMPTY; real wholesale prices only appear on the live account (Gate 4). |
+| `POST /customers` | → `{customerId}`. **LIVE-VERIFIED required fields beyond the spec**: `email`, `state` ("state: must not be blank"), `languagePreference` ("must not be blank"), and the **username must be email-shaped** ("username: Emailaddr is invalid") — the adapter derives `<local>.rc<hex>@<their domain>`, unique per attempt. Also sent: name, company, addressLine1, city, country, zipcode, phoneCountryCode, phone. |
+| `POST /contacts` | → `{contactId}` (LIVE-VERIFIED key name). ONE contact is reused for all four roles, as the vendor quickstart instructs. Same field shape as customers (incl. `state`). |
+| `POST /domains` | register. **LIVE-VERIFIED: `ns` is REQUIRED as a JSON array** — the spec's required list omits it, the 400 error text says "nameservers", but the parser only accepts `ns` (a string fails with a Jackson ArrayList type error). The adapter sends the registrar default parking pair `ns1/ns2.resellerclub.com`; nameserver management is a later phase. Rest of the required set: `domainName, years, customerId, regContactId, adminContactId, techContactId, billingContactId, invoiceOption, autoRenew`. **LIVE-VERIFIED response**: `{status:"Success", orderId, entityId, invoiceId, actionTypeDesc, actionStatusDesc, sellingAmount, sellingCurrencySymbol}` — a `Success` means the order + invoice EXIST (money committed), not that the domain is active yet. |
+| `GET /actions/search-current?orderId=<id>&size=10&page=1` | → `{totalItems, itemsOnPage, actions:[{orderId, actionType, actionStatus, actionStatusDesc, actionAdded, actionStarted, actionCompleted}]}`. **LIVE-VERIFIED `actionStatus`: `PendingExecution`** (sandbox queue; order stays `InActive` until it runs). Quickstart also names `Added · Being Processed · Completed · Failed`. The spec enumerates none — anything unknown keeps polling. |
+| `POST /domains/{orderId}/renew` | `{years, expDate, invoiceOption, autoRenew}` where `expDate` is the domain's current expiry as epoch SECONDS — the vendor's own idempotency guard: a stale retry is rejected at the registrar instead of double-renewing. (Live execution pending: the probe order was still in the sandbox queue; shape cross-checked against the spec. Re-probe when the order goes Active.) |
+| `GET /domains/by-name/{name}?options=All` | **LIVE-VERIFIED: `options=All` is REQUIRED (400 without it)**; response nests under a `domain` key; **404 "Website doesn't exist for <name>"** when the domain is not under this reseller account (a clean "not ours", not an error). `GET /domains/{orderId}?options=All` behaves the same way. While a registration action is still queued, the order answers with `currentStatus:"InActive"` and **no expiry field** — so expiry scanning honestly finds nothing until the registrar actually activates it. |
 
 **Honest-money choices pinned in the adapter:**
 
@@ -57,9 +62,20 @@ vendor quickstart — nothing is guessed. Pinned in
   the renewal already landed.
 
 **Phone & address mapping:** ResellerClub wants separate country code +
-number and a zipcode. `splitPhone()` splits with an ITU dial-code map and
-rejects unsplittable input definitely (`DOMAIN_PHONE_*`); the registrant
-schema carries a required `postalCode`.
+number, a zipcode AND a state (all three live-verified as hard-required).
+`splitPhone()` splits with an ITU dial-code map and rejects unsplittable
+input definitely (`DOMAIN_PHONE_*`); the registrant schema carries required
+`state` and `postalCode`.
+
+**Sandbox probe record (2026-11-10):** availability vocabulary pinned
+(`available` / `regthroughothers` / `unknown`); customer + contact creation
+proven (real `customerId` 35148032, `contactId` 136381340); registration
+proven to the point of a real sandbox order (`orderId` 127600485,
+`status:"Success"`, invoice created) with the action left `PendingExecution`
+in the sandbox queue. **Remaining live checks:** the renew `expDate` round
+(re-runnable once the probe order goes Active — `GET
+/actions/search-current?orderId=127600485`) and real `cost[]` pricing on the
+live account.
 
 **No `.gh` TLDs** in the ResellerClub catalog either; Ghanaian `.com.gh`
 etc. need a separate local registrar flow later.
@@ -71,12 +87,10 @@ etc. need a separate local registrar flow later.
 > "registers" nothing real, so it must never serve live customers. Sandbox
 > credentials live in local `.env` only.
 
-1. **Sandbox probe (blocks availability + renewal pinning)** — create the
-   free sandbox account (resellerclub.com/sandbox-signup), paste
-   `X-User-Id` + API key, then live-probe `/domains/available` with an
-   available and a taken name to pin the exact `status` vocabulary into
-   `KNOWN_AVAILABLE` / `KNOWN_TAKEN`, and verify the `expDate` epoch format
-   on a sandbox renewal.
+1. **Sandbox probe — availability pinning: DONE** (2026-11-10). Vocabulary
+   `available` / `regthroughothers` / `unknown` pinned in the adapter with
+   fixture tests. Remaining from the probe: re-run the renew `expDate`
+   round-trip once sandbox order 127600485 leaves the queue.
 2. **Funding question (blocks live sales)** — ask ResellerClub 24/7 chat
    whether the reseller wallet can be funded with Flutterwave/Ghana MoMo.
    If card/PayPal only, the supplier decision must be revisited before a
@@ -139,9 +153,9 @@ expiry (`lastWarningLevel` 1–4) so the dashboard can surface lapse risk.
 
 Registrant (required at purchase, stored on the domain row): firstName,
 lastName, organisation?, email, phone (international format), country
-(ISO alpha-2), city, **postalCode** (registrar-required), addressLine —
-validated by `domainRegistrantSchema` and mapped to ResellerClub's
-customer/contact fields by the adapter.
+(ISO alpha-2), city, **state** and **postalCode** (both registrar-required,
+live-verified), addressLine — validated by `domainRegistrantSchema` and
+mapped to ResellerClub's customer/contact fields by the adapter.
 
 ## Worker
 

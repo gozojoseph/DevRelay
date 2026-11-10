@@ -23,20 +23,23 @@ import { ProviderFailure } from './types.js';
 //        roles, as the vendor quickstart instructs)
 //   POST /domains    { domainName, years, customerId, regContactId,
 //        adminContactId, techContactId, billingContactId, invoiceOption,
-//        autoRenew }  -> { orderId, status: Success|PendingDomainVerification }
-//        (`ns` is NOT in the schema's required list — omitting it lets the
-//        registrar default apply; nameserver management is a later phase)
+//        autoRenew, ns: [ns1, ns2] }  -> { orderId, status: Success, invoiceId }
+//        (LIVE-VERIFIED 2026-11-10: `ns` is REQUIRED by the real API as a
+//        JSON array even though the spec's required list omits it)
 //   GET  /actions/search-current?orderId=<id>&size=10&page=1
-//        -> { actions: [{ orderId, actionType, actionStatus, actionStatusDesc }] }
-//        actionStatus typical values (vendor quickstart): Added | Being
-//        Processed | Completed | Failed. The OpenAPI spec does not enumerate
-//        them, so anything unknown is treated as still processing.
+//        -> { totalItems, itemsOnPage, actions: [{ orderId, actionType,
+//        actionStatus, actionStatusDesc }] }
+//        actionStatus values OBSERVED LIVE 2026-11-10: PendingExecution
+//        (sandbox queue) — quickstart also names Added | Being Processed |
+//        Completed | Failed. The spec enumerates none, so anything unknown is
+//        treated as still processing.
 //   POST /domains/{orderId}/renew { years, expDate (epoch SECONDS),
 //        invoiceOption, autoRenew }  -> order response
 //        (expDate makes a stale retry reject at the registrar instead of
 //        double-renewing — the vendor's own idempotency guard)
-//   GET  /domains/by-name/{domainName} -> order details (404 when the domain
-//        is not registered under this reseller account)
+//   GET  /domains/by-name/{domainName}?options=All -> order details under a
+//        `domain` key (404 "Website doesn't exist for <name>" when the domain
+//        is not registered under this reseller account; `options` is REQUIRED)
 //
 // HONEST-MONEY CHOICES PINNED HERE:
 // - invoiceOption 'PayInvoice' everywhere: the reseller wallet must be able to
@@ -52,7 +55,7 @@ import { ProviderFailure } from './types.js';
 export interface DomainRegistrant {
   firstName: string; lastName: string; email: string; phone: string;
   country: string; // ISO 3166-1 alpha-2, e.g. GH
-  city: string; postalCode: string; addressLine: string;
+  city: string; state: string; postalCode: string; addressLine: string;
   organisation?: string;
 }
 
@@ -85,13 +88,15 @@ export class ProviderNotConfiguredError extends ProviderFailure {
 }
 
 /**
- * Availability vocabulary. The spec types `status` as a free string without
- * enumerating values, so until the sandbox probe (go-live checklist step 1 in
- * docs/domains.md) only exact matches are trusted and anything else is
- * ambiguous. KNOWN_TAKEN is filled ONLY from live-verified answers.
+ * Availability vocabulary — LIVE-VERIFIED against the sandbox API 2026-11-10:
+ *   free .com  -> status "available"
+ *   taken .com -> status "regthroughothers"  (classkey domcno)
+ *   unevaluated -> status "unknown" (sandbox answered this for ccTLDs; the
+ *                  real registry state is NOT determinable from it)
+ * Anything but these exact words is ambiguous — never a guessed boolean.
  */
 const KNOWN_AVAILABLE = new Set(['available']);
-const KNOWN_TAKEN = new Set<string>();
+const KNOWN_TAKEN = new Set(['regthroughothers']);
 
 const POLL_INTERVAL_MS = 2_000;
 const POLL_BUDGET_MS = 45_000;
@@ -201,36 +206,48 @@ function str(value: unknown): string | undefined {
 
 /**
  * Looks up whether a domain name is already an order under THIS reseller
- * account. 404 is a clean "not ours" answer, not an error.
+ * account. 404 is a clean "not ours" answer, not an error (live-verified:
+ * the API answers 404 "Website doesn't exist for <name>"; `options=All` is
+ * a REQUIRED parameter — without it the API 400s).
  */
 async function findOwnOrderId(deps: ResellerDeps, name: string): Promise<string | undefined> {
-  const { status, body } = await call(deps, `/domains/by-name/${encodeURIComponent(name)}`, { method: 'GET' });
+  const { status, body } = await call(deps, `/domains/by-name/${encodeURIComponent(name)}?options=All`, { method: 'GET' });
   if (status === 404) return undefined;
   if (isTransient(status)) throw ambiguous('DOMAIN_RESELLER_UNAVAILABLE');
   if (status !== 200) throw new ProviderFailure('rejected', 'DOMAIN_LOOKUP_REJECTED');
   const record = asRecord(body);
-  const id = str(record?.orderId ?? record?.order_id);
+  const id = str(record?.orderId ?? record?.order_id)
+    // Live-verified: the details object nests under a `domain` key.
+    ?? str(asRecord(record?.domain)?.orderId);
   if (!id) throw ambiguous('DOMAIN_RESELLER_UNRESOLVED');
   return id;
 }
 
 async function ensureCustomer(deps: ResellerDeps, registrant: DomainRegistrant): Promise<string> {
-  const localPart = registrant.email.split('@')[0]!.replace(/[^a-z0-9]/gi, '').slice(0, 12) || 'devrelay';
-  const username = `${localPart}.${randomBytes(4).toString('hex')}`;
+  // Live-verified required fields (sandbox probe 2026-11-10): email, state,
+  // languagePreference, and a USERNAME THAT MUST BE EMAIL-SHAPED ("username:
+  // Emailaddr is invalid"). Derived username = <local>.rc<hex>@<their domain>:
+  // unique per attempt, traceable to the customer, passes email validation.
+  const [localPart, emailDomain] = registrant.email.split('@');
+  const cleanLocal = (localPart ?? 'customer').replace(/[^a-z0-9]/gi, '').slice(0, 24) || 'customer';
+  const username = `${cleanLocal}.rc${randomBytes(3).toString('hex')}@${emailDomain ?? 'devrelay.test'}`;
   const password = randomBytes(12).toString('base64url');
   const { code, number } = splitPhone(registrant.phone, registrant.country);
   const { status, body } = await call(deps, '/customers', {
     method: 'POST',
     body: JSON.stringify({
       username, password,
+      email: registrant.email,
       name: `${registrant.firstName} ${registrant.lastName}`.trim(),
       company: registrant.organisation || `${registrant.firstName} ${registrant.lastName}`.trim(),
       addressLine1: registrant.addressLine,
       city: registrant.city,
+      state: registrant.state,
       country: registrant.country.toUpperCase(),
       zipcode: registrant.postalCode,
       phoneCountryCode: code,
       phone: number,
+      languagePreference: 'en',
     }),
   });
   if (isTransient(status)) throw ambiguous('DOMAIN_RESELLER_UNAVAILABLE');
@@ -250,6 +267,7 @@ async function ensureContact(deps: ResellerDeps, customerId: string, registrant:
       email: registrant.email,
       addressLine1: registrant.addressLine,
       city: registrant.city,
+      state: registrant.state,
       country: registrant.country.toUpperCase(),
       zipcode: registrant.postalCode,
       phoneCountryCode: code,
@@ -329,7 +347,9 @@ function scanExpiryEpoch(node: unknown, depth = 0): number | undefined {
 }
 
 async function registrarExpiry(deps: ResellerDeps, orderId: string): Promise<number | undefined> {
-  const { status, body } = await call(deps, `/domains/${encodeURIComponent(orderId)}`, { method: 'GET' });
+  // `options=All` is REQUIRED on order-details calls (live-verified 2026-11-10:
+  // both by-id and by-name answer 400 without it).
+  const { status, body } = await call(deps, `/domains/${encodeURIComponent(orderId)}?options=All`, { method: 'GET' });
   if (status !== 200) return undefined; // cannot tell — the expDate guard still protects the renewal
   return scanExpiryEpoch(body);
 }
@@ -388,6 +408,13 @@ export function createDomainReseller(deps: ResellerDeps): DomainResellerAdapter 
           techContactId: contactId, billingContactId: contactId,
           invoiceOption: 'PayInvoice',
           autoRenew: false,
+          // LIVE-VERIFIED (sandbox probe 2026-11-10): `ns` IS required, as a
+          // JSON array — the OpenAPI spec's required list omits it and the
+          // error text calls it "nameservers", but the parser only accepts
+          // `ns` (an ArrayList; a string fails with a Jackson type error).
+          // Registrar default parking pair for launch; nameserver management
+          // is a later phase.
+          ns: ['ns1.resellerclub.com', 'ns2.resellerclub.com'],
         }),
       });
       if (isTransient(status)) throw ambiguous('DOMAIN_REGISTER_UNAVAILABLE');

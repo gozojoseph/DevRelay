@@ -19,7 +19,7 @@ describe('domain reseller stub', () => {
   it('refuses lookups, registrations and renewals with a definite not-configured failure', async () => {
     const registrant = {
       firstName: 'Ama', lastName: 'Mensah', email: 'ama@example.test', phone: '+233244000000',
-      country: 'GH', city: 'Accra', postalCode: 'GA-184', addressLine: '12 Test Street',
+      country: 'GH', city: 'Accra', state: 'Greater Accra', postalCode: 'GA-184', addressLine: '12 Test Street',
     };
     await expect(domainReseller.lookup('example.com'))
       .rejects.toMatchObject({ kind: 'rejected', publicCode: 'DOMAIN_RESELLER_NOT_CONFIGURED' });
@@ -36,7 +36,7 @@ const ENV = { url: `${BASE}/`, username: 'user-1', apiKey: 'key-1' };
 
 const registrant = {
   firstName: 'Ama', lastName: 'Mensah', email: 'ama@example.test', phone: '+233244000000',
-  country: 'GH', city: 'Accra', postalCode: 'GA-184', addressLine: '12 Test Street',
+  country: 'GH', city: 'Accra', state: 'Greater Accra', postalCode: 'GA-184', addressLine: '12 Test Street',
 };
 
 interface FakeCall { url: string; method: string; headers: Record<string, string>; body?: unknown }
@@ -82,10 +82,18 @@ describe('domain reseller lookup', () => {
     expect(calls[0]!.headers['X-User-Id']).toBe('user-1');
   });
 
-  it('answers ambiguous on unverified status vocabulary — never a guessed boolean', async () => {
+  it('answers available:false on the live-verified taken vocabulary ("regthroughothers")', async () => {
     const { fetch } = fakeFetch([{ status: 200, body: {
-      domains: [{ domainName: 'taken.com', classkey: 'domc', status: 'regthroughus' }] } }]);
-    await expect(client(fetch).lookup('taken.com'))
+      domains: [{ domainName: 'google.com', classkey: 'domcno', status: 'regthroughothers', cost: [] }] } }]);
+    await expect(client(fetch).lookup('google.com')).resolves.toEqual({ available: false });
+  });
+
+  it('answers ambiguous on unverified status vocabulary — never a guessed boolean', async () => {
+    // "unknown" is a REAL API value (observed live: sandbox ccTLD lookups)
+    // meaning "not evaluated" — it must not become true or false.
+    const { fetch } = fakeFetch([{ status: 200, body: {
+      domains: [{ domainName: 'mystery.com', status: 'unknown', cost: [] }] } }]);
+    await expect(client(fetch).lookup('mystery.com'))
       .rejects.toMatchObject({ kind: 'ambiguous', publicCode: 'DOMAIN_LOOKUP_AMBIGUOUS' });
   });
 
@@ -119,15 +127,21 @@ describe('domain reseller register', () => {
     const paths = calls.filter(c => c.method === 'POST').map(c => new URL(c.url).pathname);
     expect(paths).toEqual(['/v2/customers', '/v2/contacts', '/v2/domains']);
     const [customer, contact, register] = calls.filter(c => c.method === 'POST');
-    // Phone split and required zipcode reach the vendor in ITS field shape.
-    expect(customer!.body).toMatchObject({ phoneCountryCode: '233', phone: '244000000', zipcode: 'GA-184', country: 'GH' });
-    expect(contact!.body).toMatchObject({ customerId: '123', email: 'ama@example.test', zipcode: 'GA-184' });
+    // Username must be email-shaped (live-verified) and the required
+    // customer fields reach the vendor in ITS field shape.
+    expect(String(customer!.body.username)).toMatch(/^[^@]+@[^@]+$/);
+    expect(customer!.body).toMatchObject({
+      email: 'ama@example.test', phoneCountryCode: '233', phone: '244000000',
+      state: 'Greater Accra', zipcode: 'GA-184', country: 'GH', languagePreference: 'en',
+    });
+    expect(contact!.body).toMatchObject({ customerId: '123', email: 'ama@example.test', state: 'Greater Accra', zipcode: 'GA-184' });
     // Paid operation pinned: PayInvoice, registrar autoRenew OFF, one contact
-    // in all four roles, no guessed nameservers.
+    // in all four roles, required `ns` array (live-verified), no other NS field.
     expect(register!.body).toEqual({
       domainName: 'example.com', years: 1, customerId: '123',
       regContactId: '456', adminContactId: '456', techContactId: '456', billingContactId: '456',
       invoiceOption: 'PayInvoice', autoRenew: false,
+      ns: ['ns1.resellerclub.com', 'ns2.resellerclub.com'],
     });
   });
 
@@ -161,7 +175,7 @@ describe('domain reseller register', () => {
     await expect(client(fetch)
       .register({ domain: 'pending.com', periodYears: 1, registrant, existingReference: '555' }))
       .resolves.toEqual({ providerReference: '555', completed: true });
-    expect(calls[1]!.url).toContain('/domains/by-name/pending.com');
+    expect(calls[1]!.url).toContain('/domains/by-name/pending.com?options=All');
   });
 
   it('answers unresolved (money held) when a vanished action has no order to show', async () => {

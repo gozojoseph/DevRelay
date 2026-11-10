@@ -13,7 +13,7 @@ import {
 const WARNING_LABELS = ['Healthy', 'Renews within 30 days', 'Renews within 14 days', 'Renews within 7 days', 'RENEWS WITHIN 1 DAY'];
 
 const emptyRegistrant = {
-  firstName: '', lastName: '', organisation: '', email: '', phone: '', country: 'GH', city: '', postalCode: '', addressLine: '',
+  firstName: '', lastName: '', organisation: '', email: '', phone: '', country: 'GH', city: '', state: '', postalCode: '', addressLine: '',
 };
 
 export function DomainsPage() {
@@ -216,6 +216,9 @@ export function DomainsPage() {
             </Field>
             <Field label="City" htmlFor="reg-city" required>
               <TextInput id="reg-city" required maxLength={80} value={registrant.city} onChange={event => setRegistrant({ ...registrant, city: event.target.value })} />
+            </Field>
+            <Field label="Region / State" htmlFor="reg-state" required hint="e.g. Greater Accra — the registrar requires it.">
+              <TextInput id="reg-state" required maxLength={80} minLength={2} value={registrant.state} onChange={event => setRegistrant({ ...registrant, state: event.target.value })} />
             </Field>
             <Field label="Postal / ZIP code" htmlFor="reg-postal" required hint="The registrar requires it, e.g. GA-184 for Accra.">
               <TextInput id="reg-postal" required maxLength={10} minLength={3} value={registrant.postalCode} onChange={event => setRegistrant({ ...registrant, postalCode: event.target.value })} />

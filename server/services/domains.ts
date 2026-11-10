@@ -74,7 +74,9 @@ export const domainRegistrantSchema = z.object({
   phone: z.string().trim().min(6).max(24),
   country: z.string().trim().length(2).transform(v => v.toUpperCase()),
   city: z.string().trim().min(1).max(80),
-  // ResellerClub requires a zipcode on customers and contacts (vendor schema).
+  // ResellerClub requires state + zipcode on customers and contacts (both
+  // live-verified 2026-11-10: "state: must not be blank").
+  state: z.string().trim().min(2).max(80),
   postalCode: z.string().trim().min(3).max(10),
   addressLine: z.string().trim().min(1).max(200),
 });
