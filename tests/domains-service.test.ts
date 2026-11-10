@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../server/providers/domain-reseller.js', () => ({
   domainReseller: { lookup: mocks.lookup, register: mocks.register, renew: mocks.renew },
-  unconfiguredDomainReseller: { lookup: mocks.lookup, register: mocks.register, renew: mocks.renew },
   domainResellerReady: mocks.ready,
 }));
 
@@ -34,7 +33,7 @@ afterAll(closeTestDb);
 
 const registrant = {
   firstName: 'Ama', lastName: 'Mensah', email: 'ama@example.test', phone: '+233244000000',
-  country: 'GH', city: 'Accra', addressLine: '12 Test Street',
+  country: 'GH', city: 'Accra', postalCode: 'GA-184', addressLine: '12 Test Street',
 };
 
 const YEAR_MS = 365 * 86_400_000;
@@ -116,7 +115,7 @@ describe('createDomainOrder', () => {
     await createDomainOrder({ accountId: account.id, projectId: project.id, domain: 'twice.com', registrant });
     await expect(createDomainOrder({ accountId: account.id, projectId: project.id, domain: 'TWICE.com', registrant }))
       .rejects.toMatchObject({ status: 409, code: 'DOMAIN_TAKEN' });
-    await db.update(domains).set({ status: 'failed', providerReference: 'HA-OLD', lastError: 'DOMAIN_PREMIUM_NAME' })
+    await db.update(domains).set({ status: 'failed', providerReference: 'RC-OLD', lastError: 'DOMAIN_PREMIUM_NAME' })
       .where(eq(domains.name, 'twice.com'));
     const again = await createDomainOrder({ accountId: account.id, projectId: project.id, domain: 'twice.com', registrant });
     const rows = await db.select().from(domains).where(eq(domains.name, 'twice.com'));
@@ -146,14 +145,39 @@ describe('processDomainRegister', () => {
   it('activates the domain with a real expiry when the registrar accepts', async () => {
     const db = getTestDb();
     const { domain, orderId } = await orderDomain(db);
-    mocks.register.mockResolvedValue({ providerReference: 'HA-12345' });
+    mocks.register.mockResolvedValue({ providerReference: 'RC-12345', completed: true });
     await expect(processDomainRegister(orderId)).resolves.toEqual({ done: true });
     const [after] = await db.select().from(domains).where(eq(domains.id, domain.id));
     expect(after?.status).toBe('active');
-    expect(after?.providerReference).toBe('HA-12345');
+    expect(after?.providerReference).toBe('RC-12345');
     expect(after!.expiresAt!.getTime()).toBeGreaterThan(Date.now() + YEAR_MS - 86_400_000);
     const [order] = await db.select().from(domainOrders).where(eq(domainOrders.id, orderId));
     expect(order?.status).toBe('done');
+  });
+
+  it('persists the in-flight reference and resumes without re-posting the paid operation', async () => {
+    const db = getTestDb();
+    const { domain, orderId } = await orderDomain(db);
+    mocks.register
+      .mockResolvedValueOnce({ providerReference: 'RC-555', completed: false }) // registrar has it, still processing
+      .mockResolvedValueOnce({ providerReference: 'RC-555', completed: true }); // poll finished on the retry
+    await expect(processDomainRegister(orderId))
+      .resolves.toEqual({ done: false, retry: true, code: 'DOMAIN_REGISTER_PROCESSING' });
+    const [inFlight] = await db.select().from(domains).where(eq(domains.id, domain.id));
+    expect(inFlight?.status).toBe('pending_register'); // honest in-flight, never "active"
+    expect(inFlight?.providerReference).toBe('RC-555');
+    const [inFlightOrder] = await db.select().from(domainOrders).where(eq(domainOrders.id, orderId));
+    expect(inFlightOrder).toMatchObject({ status: 'pending', providerReference: 'RC-555' });
+    // The retry must carry the persisted reference so the adapter resumes
+    // polling that exact registrar order instead of paying a second time.
+    await expect(processDomainRegister(orderId)).resolves.toEqual({ done: true });
+    expect(mocks.register).toHaveBeenLastCalledWith(expect.objectContaining({
+      domain: 'register-me.com', existingReference: 'RC-555',
+    }));
+    const [after] = await db.select().from(domains).where(eq(domains.id, domain.id));
+    expect(after?.status).toBe('active');
+    const [doneOrder] = await db.select().from(domainOrders).where(eq(domainOrders.id, orderId));
+    expect(doneOrder?.status).toBe('done');
   });
 
   it('refunds in full when the registrar definitively rejects', async () => {
@@ -191,13 +215,32 @@ describe('processDomainRenew', () => {
       domainId: domain.id, accountId: account.id, action: 'renew', periodYears: 1,
       amountMinor: DOMAIN_TLDS.com.priceMinor,
     }).returning();
-    mocks.renew.mockResolvedValue({ providerReference: 'HA-REN-1' });
+    mocks.renew.mockResolvedValue({ providerReference: 'RC-REN-1', completed: true });
     await processDomainRenew(order!.id);
     const [after] = await db.select().from(domains).where(eq(domains.id, domain.id));
     expect(after!.expiresAt!.getTime()).toBeCloseTo(currentExpiry.getTime() + YEAR_MS, -4);
     expect(after?.lastWarningLevel).toBe(0);
     const [done] = await db.select().from(domainOrders).where(eq(domainOrders.id, order!.id));
     expect(done?.status).toBe('done');
+  });
+
+  it('keeps the order pending and retries while the renewal is in flight at the registrar', async () => {
+    const db = getTestDb();
+    const { account, project } = await seedWorld(db);
+    const domain = await seedDomainRow(db, { accountId: account.id, projectId: project.id,
+      expiresWithinDays: 10, name: 'renew-inflight.com' });
+    const [order] = await db.insert(domainOrders).values({
+      domainId: domain.id, accountId: account.id, action: 'renew', periodYears: 1,
+      amountMinor: DOMAIN_TLDS.com.priceMinor,
+    }).returning();
+    mocks.renew.mockResolvedValue({ providerReference: domain.providerReference ?? 'RC-INFLIGHT', completed: false });
+    await expect(processDomainRenew(order!.id))
+      .resolves.toEqual({ done: false, retry: true, code: 'DOMAIN_RENEW_PROCESSING' });
+    const [after] = await db.select().from(domains).where(eq(domains.id, domain.id));
+    expect(after?.status).toBe('active'); // expiry only moves when it truly completed
+    expect(after!.expiresAt).toEqual(domain.expiresAt);
+    const [pending] = await db.select().from(domainOrders).where(eq(domainOrders.id, order!.id));
+    expect(pending?.status).toBe('pending');
   });
 
   it('refunds a definite rejection and leaves the domain on its real expiry', async () => {
@@ -246,7 +289,7 @@ describe('renewDueDomains', () => {
     const [job] = await db.select().from(jobs).where(eq(jobs.kind, 'domain.renew'));
     expect(job?.payload).toMatchObject({ orderId: order!.id });
     // Renewal completes only through the job (mirrors the register flow).
-    mocks.renew.mockResolvedValue({ providerReference: 'HA-REN-2' });
+    mocks.renew.mockResolvedValue({ providerReference: 'RC-REN-2', completed: true });
     await processDomainRenew(order!.id);
     const [after] = await db.select().from(domains).where(eq(domains.id, domain.id));
     expect(after!.expiresAt!.getTime()).toBeGreaterThan(Date.now() + YEAR_MS - 86_400_000);

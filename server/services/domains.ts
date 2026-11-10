@@ -19,11 +19,13 @@ import { ProviderFailure } from '../providers/types.js';
 
 /**
  * TLD catalog. `priceMinor` is the DevRelay customer price in GHS pesewas —
- * PLACEHOLDER pending the user's final FX + margin decision. `supplierUsdCents`
- * is the documented HostAfrica reseller wholesale cost (verified from their
- * reseller page, 2026-11): .com $15.08, .org $9.99, .net $14.63, .africa $6.19,
- * .com.ng $5.00, .co.ke $11.00. NOTE: no .gh TLDs exist in the supplier
- * catalog; Ghanaian .com.gh etc. need a separate local registrar flow later.
+ * PLACEHOLDER pending two things: the ResellerClub sandbox probe (live cost
+ * prices per TLD come back in the availability response's `cost` array) and
+ * the user's final FX + margin decision. `supplierUsdCents` is the OLD
+ * HostAfrica wholesale figure — kept only as a rough sizing reference, NOT a
+ * real cost basis; ResellerClub's actual pricing replaces it at go-live.
+ * NOTE: no .gh TLDs exist in the ResellerClub catalog either; Ghanaian
+ * .com.gh etc. need a separate local registrar flow later.
  */
 export const DOMAIN_TLDS = {
   'com': { tld: 'com', priceMinor: 26_000, supplierUsdCents: 1_508 },
@@ -72,6 +74,8 @@ export const domainRegistrantSchema = z.object({
   phone: z.string().trim().min(6).max(24),
   country: z.string().trim().length(2).transform(v => v.toUpperCase()),
   city: z.string().trim().min(1).max(80),
+  // ResellerClub requires a zipcode on customers and contacts (vendor schema).
+  postalCode: z.string().trim().min(3).max(10),
   addressLine: z.string().trim().min(1).max(200),
 });
 
@@ -187,7 +191,25 @@ export async function processDomainRegister(orderId: string) {
   try {
     const result = await domainReseller.register({
       domain: domain.name, periodYears: order.periodYears, registrant: domain.registrant as DomainRegistrant,
+      // Resume protocol: an earlier attempt that reached the registrar left
+      // its order id on the row — poll it to completion, never re-post.
+      existingReference: domain.providerReference ?? undefined,
     });
+    if (!result.completed) {
+      // The money is committed at the registrar and the order is in flight.
+      // Persist the reference so the next attempt resumes polling; the order
+      // stays pending and the job retries — honest in-flight, not "done".
+      await db.transaction(async tx => {
+        const [current] = await tx.select().from(domainOrders).where(eq(domainOrders.id, orderId)).for('update');
+        if (!current || current.status !== 'pending') return;
+        const now = new Date();
+        await tx.update(domainOrders).set({ providerReference: result.providerReference, updatedAt: now })
+          .where(eq(domainOrders.id, orderId));
+        await tx.update(domains).set({ providerReference: result.providerReference, updatedAt: now })
+          .where(eq(domains.id, domain.id));
+      });
+      return { done: false, retry: true, code: 'DOMAIN_REGISTER_PROCESSING' };
+    }
     await db.transaction(async tx => {
       const [current] = await tx.select().from(domainOrders).where(eq(domainOrders.id, orderId)).for('update');
       if (!current || current.status !== 'pending') return;
@@ -224,6 +246,17 @@ export async function processDomainRenew(orderId: string) {
       domain: domain.name, providerReference: domain.providerReference ?? undefined,
       currentExpiry: domain.expiresAt ?? new Date(), periodYears: order.periodYears,
     });
+    if (!result.completed) {
+      // Renewal submitted and in flight at the registrar; the expDate guard
+      // makes any future re-submission safe. Keep the order pending and retry.
+      await db.transaction(async tx => {
+        const [current] = await tx.select().from(domainOrders).where(eq(domainOrders.id, orderId)).for('update');
+        if (!current || current.status !== 'pending') return;
+        await tx.update(domainOrders).set({ providerReference: result.providerReference, updatedAt: new Date() })
+          .where(eq(domainOrders.id, orderId));
+      });
+      return { done: false, retry: true, code: 'DOMAIN_RENEW_PROCESSING' };
+    }
     await db.transaction(async tx => {
       const [current] = await tx.select().from(domainOrders).where(eq(domainOrders.id, orderId)).for('update');
       if (!current || current.status !== 'pending') return;
