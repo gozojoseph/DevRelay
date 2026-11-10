@@ -114,3 +114,27 @@ export interface PricingVersion extends PricingItem { providerCostMinor: number 
   providerCostCurrency: string | null; providerFeeMinor: number; serviceMarginMinor: number;
   effectiveTo: string | null; createdBy: string | null; createdAt: string }
 export interface PlatformSettings { id: number; minimumFundingMinor: number | null; updatedAt: string }
+
+// DevRelay Cloud (hosting) — docs/hosting.md
+export interface HostingPlanOption { id: string; label: string; memoryMb: number; cpuMilli: number; priceMinor: number }
+export interface HostingAppListItem { id: string; projectId: string; projectName: string | null; name: string;
+  slug: string; plan: string; status: string; url: string | null; branch: string; builder: string;
+  planExpiresAt: string | null; lastError: string | null; createdAt: string }
+export interface HostingDeployment { id: string; ref: string; status: string; error: string | null;
+  startedAt: string | null; finishedAt: string | null; createdAt: string }
+export interface HostingAppDetail extends HostingAppListItem { containerRef: string | null;
+  currentDeploymentId: string | null; repoUrl: string; deployments: HostingDeployment[] }
+export interface HostingOverview { available: boolean; plans: HostingPlanOption[]; items: HostingAppListItem[] }
+
+// In-platform domain reselling — docs/domains.md
+export interface DomainPricing { tld: string; priceMinor: number }
+export interface DomainListItem { id: string; projectId: string; projectName: string | null; name: string;
+  tld: string; status: string; autoRenew: boolean; periodYears: number; expiresAt: string | null;
+  nameservers: string[] | null; lastWarningLevel: number; lastError: string | null; createdAt: string }
+export interface DomainOrderItem { id: string; action: 'register' | 'renew'; amountMinor: number;
+  status: string; error: string | null; createdAt: string }
+export interface DomainDetail extends DomainListItem { registrant: Record<string, string>;
+  providerReference: string | null; orders: DomainOrderItem[] }
+export interface DomainsOverview { available: boolean; periodDays: number; graceDays: number;
+  pricing: DomainPricing[]; items: DomainListItem[] }
+export interface DomainLookup { domain: string; tld: string; available: boolean; priceMinor: number; currency: string }

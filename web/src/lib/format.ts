@@ -53,11 +53,12 @@ export function titleCase(value: string): string {
 }
 
 export function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral' | 'info' {
-  if (['active', 'delivered', 'read', 'approved', 'settled', 'credited', 'resolved'].includes(status)) return 'success';
+  if (['active', 'delivered', 'read', 'approved', 'settled', 'credited', 'resolved', 'live'].includes(status)) return 'success';
   if (['queued', 'sending', 'accepted', 'pending', 'pending_approval', 'pending_activation', 'pending_verification',
-    'sent', 'incoming', 'initializing'].includes(status)) return 'info';
-  if (['reserved', 'reconciliation_required', 'pending_reconciliation', 'paused', 'suspended'].includes(status)) return 'warning';
-  if (['failed', 'rejected', 'dead', 'mismatch', 'reversed', 'disabled', 'flagged'].includes(status)) return 'danger';
+    'pending_register', 'building', 'sent', 'incoming', 'initializing'].includes(status)) return 'info';
+  if (['reserved', 'reconciliation_required', 'pending_reconciliation', 'paused', 'paused_no_funds', 'paused_manual',
+    'suspended', 'expired'].includes(status)) return 'warning';
+  if (['failed', 'rejected', 'dead', 'mismatch', 'reversed', 'disabled', 'flagged', 'lapsed'].includes(status)) return 'danger';
   return 'neutral';
 }
 

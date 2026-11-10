@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { and, count, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNull, lt, ne } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { db } from '../db/client.js';
-import { accounts, apiKeys, auditEvents, consentRecords, deliveryEvents, ledgerAccounts, ledgerEntries,
-  ledgerTransactions, messages, paymentAttempts, platformSettings, projects, senderRequests, supportRequests,
-  suppressions, webhookAttempts, webhookEndpoints, webhookEvents } from '../db/schema.js';
+import { accounts, apiKeys, appDeployments, auditEvents, consentRecords, deliveryEvents, domainOrders, domains,
+  hostedApps, ledgerAccounts, ledgerEntries, ledgerTransactions, messages, paymentAttempts, platformSettings,
+  projects, senderRequests, supportRequests, suppressions, webhookAttempts, webhookEndpoints, webhookEvents } from '../db/schema.js';
 import { availability, config } from '../config.js';
 import { ApiError, assert, ok } from '../lib/http.js';
 import { decrypt, randomToken, sha256 } from '../lib/security.js';
@@ -16,6 +16,11 @@ import { normalizePhone } from '../services/pricing.js';
 import { sendSms, sendSmsSchema, sendWhatsapp, sendWhatsappSchema } from '../services/messaging.js';
 import { createEndpoint, sendTestEndpoint } from '../services/webhooks.js';
 import { conversationMessages, getWhatsapp, onboardWhatsapp, submitTemplate, syncTemplates } from '../services/whatsapp.js';
+import { hostingPlans, createHostingApp, redeployApp, stopHostingApp, startHostingApp, deleteHostingApp } from '../services/hosting.js';
+import { DOMAIN_TLDS, DOMAIN_YEAR_DAYS, DOMAIN_GRACE_DAYS, domainRegistrantSchema, createDomainOrder,
+  lookupDomainAvailability, setDomainAutoRenew, renewDomainNow } from '../services/domains.js';
+import { httpHostAgent } from '../providers/host-agent.js';
+import { ProviderFailure } from '../providers/types.js';
 
 export const dashboardRouter = Router();
 dashboardRouter.use(requireSession, requireDeveloper);
@@ -364,4 +369,153 @@ dashboardRouter.post('/whatsapp/templates', requireCsrf, async (req, res) => {
 dashboardRouter.get('/whatsapp/conversations/:id/messages', async (req, res) => {
   const id = uuid.parse(req.params.id);
   ok(req, res, await conversationMessages(accountId(req), id));
+});
+
+// ── DevRelay Cloud: hosted apps (docs/hosting.md). Same rules as the API:
+// plans are charged monthly in advance from the GHS wallet; nothing shows a
+// state the host agent did not report.
+dashboardRouter.get('/hosting', async (req, res) => {
+  const items = await db.select({ id: hostedApps.id, projectId: hostedApps.projectId,
+    projectName: projects.name, name: hostedApps.name, slug: hostedApps.slug, plan: hostedApps.plan,
+    status: hostedApps.status, url: hostedApps.url, branch: hostedApps.branch, builder: hostedApps.builder,
+    planExpiresAt: hostedApps.planExpiresAt, lastError: hostedApps.lastError, createdAt: hostedApps.createdAt })
+    .from(hostedApps).leftJoin(projects, eq(projects.id, hostedApps.projectId))
+    .where(and(eq(hostedApps.accountId, accountId(req)), ne(hostedApps.status, 'deleted')))
+    .orderBy(desc(hostedApps.createdAt)).limit(100);
+  ok(req, res, { available: availability().hosting, plans: Object.values(hostingPlans), items });
+});
+
+dashboardRouter.post('/hosting/apps', requireCsrf, async (req, res) => {
+  const { projectId, ...rest } = z.object({ projectId: uuid, name: z.string().trim().min(2).max(60),
+    repoUrl: z.string().trim().url().max(500).startsWith('https://'),
+    repoToken: z.string().min(1).max(300).optional(), branch: z.string().trim().min(1).max(120).default('main'),
+    builder: z.enum(['dockerfile', 'node']).default('node'), plan: z.string().trim().min(1).max(20) }).parse(req.body);
+  await assertProject(req, projectId);
+  const result = await createHostingApp({ accountId: accountId(req), projectId, ...rest });
+  await changed(req, 'hosting_app.created', 'hosted_app', result.app.id, { plan: rest.plan });
+  ok(req, res, { id: result.app.id, slug: result.app.slug, deploymentId: result.deploymentId }, 202);
+});
+
+async function ownedApp(req: import('express').Request, id: string) {
+  const [app] = await db.select().from(hostedApps).where(and(eq(hostedApps.id, id),
+    eq(hostedApps.accountId, accountId(req)), ne(hostedApps.status, 'deleted')));
+  assert(app, 404, 'APP_NOT_FOUND', 'App not found.');
+  return app;
+}
+
+dashboardRouter.get('/hosting/apps/:id', async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const app = await ownedApp(req, id);
+  const deployments = await db.select({ id: appDeployments.id, ref: appDeployments.ref,
+    status: appDeployments.status, error: appDeployments.error, startedAt: appDeployments.startedAt,
+    finishedAt: appDeployments.finishedAt, createdAt: appDeployments.createdAt })
+    .from(appDeployments).where(eq(appDeployments.appId, id)).orderBy(desc(appDeployments.createdAt)).limit(10);
+  ok(req, res, { ...app, deployments });
+});
+
+dashboardRouter.post('/hosting/apps/:id/deploy', requireCsrf, async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const app = await ownedApp(req, id);
+  const input = z.object({ ref: z.string().trim().min(1).max(120).optional() }).parse(req.body ?? {});
+  const result = await redeployApp({ accountId: accountId(req), projectId: app.projectId, appId: app.id, ref: input.ref });
+  await changed(req, 'hosting_app.redeploy_queued', 'hosted_app', app.id, { ref: input.ref ?? app.branch });
+  ok(req, res, result, 202);
+});
+
+for (const action of ['stop', 'start'] as const) {
+  dashboardRouter.post(`/hosting/apps/:id/${action}`, requireCsrf, async (req, res) => {
+    const id = uuid.parse(req.params.id);
+    await ownedApp(req, id);
+    if (action === 'stop') await stopHostingApp(accountId(req), id);
+    else await startHostingApp(accountId(req), id);
+    await changed(req, `hosting_app.${action}_queued`, 'hosted_app', id);
+    ok(req, res, { queued: true }, 202);
+  });
+}
+
+dashboardRouter.delete('/hosting/apps/:id', requireCsrf, async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  await ownedApp(req, id);
+  await deleteHostingApp(accountId(req), id);
+  await changed(req, 'hosting_app.delete_queued', 'hosted_app', id);
+  ok(req, res, { queued: true }, 202);
+});
+
+dashboardRouter.get('/hosting/apps/:id/logs', async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const app = await ownedApp(req, id);
+  try {
+    ok(req, res, await httpHostAgent.logs(app.id));
+  } catch (error) {
+    if (error instanceof ProviderFailure) {
+      if (error.publicCode === 'HOSTING_NOT_CONFIGURED') {
+        throw new ApiError(503, 'HOSTING_NOT_CONFIGURED', 'App hosting is not available yet. Contact support.');
+      }
+      throw new ApiError(error.kind === 'retryable' ? 429 : 502, 'HOST_AGENT_ERROR',
+        'The host agent could not return logs right now. Try again shortly.');
+    }
+    throw error;
+  }
+});
+
+// ── In-platform domain reselling (docs/domains.md). Charged in advance like
+// hosting; lapse warnings are surfaced because domains can be lost.
+dashboardRouter.get('/domains', async (req, res) => {
+  const items = await db.select({ id: domains.id, projectId: domains.projectId, projectName: projects.name,
+    name: domains.name, tld: domains.tld, status: domains.status, autoRenew: domains.autoRenew,
+    periodYears: domains.periodYears, expiresAt: domains.expiresAt, nameservers: domains.nameservers,
+    lastWarningLevel: domains.lastWarningLevel, lastError: domains.lastError, createdAt: domains.createdAt })
+    .from(domains).leftJoin(projects, eq(projects.id, domains.projectId))
+    .where(and(eq(domains.accountId, accountId(req)), ne(domains.status, 'failed')))
+    .orderBy(desc(domains.createdAt)).limit(100);
+  ok(req, res, { available: availability().domains, periodDays: DOMAIN_YEAR_DAYS, graceDays: DOMAIN_GRACE_DAYS,
+    pricing: Object.values(DOMAIN_TLDS).map(({ tld, priceMinor }) => ({ tld, priceMinor })), items });
+});
+
+dashboardRouter.post('/domains/lookup', requireCsrf, async (req, res) => {
+  const input = z.object({ domain: z.string().trim().min(4).max(253) }).parse(req.body);
+  ok(req, res, await lookupDomainAvailability(input.domain));
+});
+
+dashboardRouter.post('/domains', requireCsrf, async (req, res) => {
+  const { projectId, ...rest } = z.object({ projectId: uuid, domain: z.string().trim().min(4).max(253),
+    autoRenew: z.boolean().default(true), registrant: domainRegistrantSchema }).parse(req.body);
+  await assertProject(req, projectId);
+  const result = await createDomainOrder({ accountId: accountId(req), projectId, ...rest });
+  await changed(req, 'domain.ordered', 'domain', result.domain.id, { tld: result.domain.tld });
+  ok(req, res, { id: result.domain.id, name: result.domain.name, orderId: result.orderId }, 202);
+});
+
+async function ownedDomain(req: import('express').Request, id: string) {
+  const [domain] = await db.select().from(domains).where(and(eq(domains.id, id),
+    eq(domains.accountId, accountId(req)), ne(domains.status, 'failed')));
+  assert(domain, 404, 'DOMAIN_NOT_FOUND', 'Domain not found.');
+  return domain;
+}
+
+dashboardRouter.get('/domains/:id', async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const domain = await ownedDomain(req, id);
+  const orders = await db.select({ id: domainOrders.id, action: domainOrders.action,
+    amountMinor: domainOrders.amountMinor, status: domainOrders.status, error: domainOrders.error,
+    createdAt: domainOrders.createdAt }).from(domainOrders).where(eq(domainOrders.domainId, id))
+    .orderBy(desc(domainOrders.createdAt)).limit(10);
+  ok(req, res, { ...domain, orders });
+});
+
+dashboardRouter.patch('/domains/:id', requireCsrf, async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const domain = await ownedDomain(req, id);
+  const input = z.object({ autoRenew: z.boolean() }).parse(req.body);
+  await setDomainAutoRenew({ accountId: accountId(req), projectId: domain.projectId, domainId: id, autoRenew: input.autoRenew });
+  await changed(req, 'domain.autorenew_updated', 'domain', id, { autoRenew: input.autoRenew });
+  ok(req, res, { id, autoRenew: input.autoRenew });
+});
+
+dashboardRouter.post('/domains/:id/renew', requireCsrf, async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const domain = await ownedDomain(req, id);
+  const result = await renewDomainNow({ accountId: accountId(req), projectId: domain.projectId, domainId: id });
+  await changed(req, 'domain.renewal_queued', 'domain', id);
+  ok(req, res, result, 202);
 });

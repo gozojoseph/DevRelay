@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  BadgeCheck, ContactRound, FolderKanban, LayoutDashboard, LifeBuoy, LogOut, Menu, MessageCircle,
-  MessageSquare, Send, Settings2, ShieldCheck, Wallet, Webhook, X,
+  BadgeCheck, ContactRound, FolderKanban, Globe, LayoutDashboard, LifeBuoy, LogOut, Menu, MessageCircle,
+  MessageSquare, Send, Server, Settings2, ShieldCheck, Wallet, Webhook, X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { titleCase } from '../lib/format';
@@ -21,6 +21,10 @@ const groups = [
     { to: '/app/wallet', label: 'Wallet', icon: Wallet },
     { to: '/app/projects', label: 'Projects & keys', icon: FolderKanban },
     { to: '/app/webhooks', label: 'Webhooks', icon: Webhook },
+  ] },
+  { title: 'DevRelay Cloud', links: [
+    { to: '/app/hosting', label: 'Hosting', icon: Server },
+    { to: '/app/domains', label: 'Domains', icon: Globe },
   ] },
   { title: 'Compliance', links: [
     { to: '/app/contacts', label: 'Consent & opt-outs', icon: ContactRound },

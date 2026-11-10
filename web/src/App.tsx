@@ -32,6 +32,8 @@ const SendersPage = lazy(() => import('./pages/app/SendersPage').then(m => ({ de
 const DeveloperSupportPage = lazy(() => import('./pages/app/SupportPage').then(m => ({ default: m.DeveloperSupportPage })));
 const SettingsPage = lazy(() => import('./pages/app/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const WhatsappPage = lazy(() => import('./pages/app/WhatsappPage').then(m => ({ default: m.WhatsappPage })));
+const HostingPage = lazy(() => import('./pages/app/HostingPage').then(m => ({ default: m.HostingPage })));
+const DomainsPage = lazy(() => import('./pages/app/DomainsPage').then(m => ({ default: m.DomainsPage })));
 
 const AdminOverviewPage = lazy(() => import('./pages/admin/AdminOverviewPage').then(m => ({ default: m.AdminOverviewPage })));
 const AdminAccountsPage = lazy(() => import('./pages/admin/AdminAccountsPage').then(m => ({ default: m.AdminAccountsPage })));
@@ -91,6 +93,8 @@ export default function App() {
             <Route path="contacts" element={<ContactsPage />} />
             <Route path="senders" element={<SendersPage />} />
             <Route path="whatsapp" element={<WhatsappPage />} />
+            <Route path="hosting" element={<HostingPage />} />
+            <Route path="domains" element={<DomainsPage />} />
             <Route path="support" element={<DeveloperSupportPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
