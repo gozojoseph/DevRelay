@@ -109,6 +109,14 @@ envVarGroups:
         sync: false
       - key: META_PRODUCTION_APPROVED
         value: "false"
+      # DevRelay Cloud host agent (docs/hosting.md): set both on the API and
+      # worker services once the hosting VPS is provisioned (H0).
+      - key: HOST_AGENT_URL
+        sync: false
+      - key: HOST_AGENT_TOKEN
+        sync: false
+      - key: HOSTING_BASE_DOMAIN
+        sync: false
 
 services:
   # Free web service (spins down after ~15 min idle; see runbook §2.4).

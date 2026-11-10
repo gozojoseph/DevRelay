@@ -14,6 +14,10 @@ export const channel = pgEnum('message_channel', ['sms', 'whatsapp']);
 export const messageStatus = pgEnum('message_status', ['queued', 'sending', 'accepted', 'sent', 'delivered', 'read', 'failed', 'pending_reconciliation', 'reconciled', 'incoming']);
 export const reservationStatus = pgEnum('reservation_status', ['none', 'reserved', 'settled', 'released']);
 export const jobStatus = pgEnum('job_status', ['pending', 'running', 'done', 'dead']);
+export const hostedAppStatus = pgEnum('hosted_app_status', [
+  'pending', 'building', 'live', 'paused_no_funds', 'paused_manual', 'failed', 'deleted',
+]);
+export const appDeploymentStatus = pgEnum('app_deployment_status', ['queued', 'building', 'live', 'failed']);
 
 export const accounts = pgTable('accounts', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -276,6 +280,37 @@ export const webhookAttempts = pgTable('webhook_attempts', {
   attempt: integer('attempt').notNull(), httpStatus: integer('http_status'), error: varchar('error', { length: 200 }),
   createdAt: created(),
 }, (t) => [index('webhook_attempt_endpoint_idx').on(t.endpointId, t.createdAt)]);
+
+// DevRelay Cloud: hosted customer apps (docs/hosting.md). One container per
+// app on the host agent; billing is a monthly plan charged in advance from the
+// GHS wallet. States are honest: `paused_no_funds` means the wallet could not
+// cover renewal, never a silent outage; a failed redeploy keeps the previous
+// container serving.
+export const hostedApps = pgTable('hosted_apps', {
+  id: uuid('id').primaryKey().defaultRandom(), accountId: uuid('account_id').notNull().references(() => accounts.id),
+  projectId: uuid('project_id').notNull().references(() => projects.id),
+  name: varchar('name', { length: 60 }).notNull(), slug: varchar('slug', { length: 40 }).notNull(),
+  builder: varchar('builder', { length: 20 }).notNull(), // 'dockerfile' | 'node'
+  repoUrl: text('repo_url').notNull(), repoTokenEncrypted: text('repo_token_encrypted'),
+  branch: varchar('branch', { length: 120 }).notNull().default('main'),
+  plan: varchar('plan', { length: 20 }).notNull(), status: hostedAppStatus('status').notNull().default('pending'),
+  url: text('url'), containerRef: varchar('container_ref', { length: 120 }),
+  currentDeploymentId: uuid('current_deployment_id'),
+  planStartedAt: time('plan_started_at'), planExpiresAt: time('plan_expires_at'),
+  lastError: varchar('last_error', { length: 240 }),
+  createdAt: created(), updatedAt: time('updated_at').defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex('hosted_apps_slug_unique').on(t.slug),
+  uniqueIndex('hosted_apps_project_name_unique').on(t.projectId, t.name),
+  index('hosted_apps_account_idx').on(t.accountId), index('hosted_apps_renewal_idx').on(t.status, t.planExpiresAt),
+]);
+
+export const appDeployments = pgTable('app_deployments', {
+  id: uuid('id').primaryKey().defaultRandom(), appId: uuid('app_id').notNull().references(() => hostedApps.id),
+  ref: varchar('ref', { length: 120 }).notNull(), status: appDeploymentStatus('status').notNull().default('queued'),
+  buildLogTail: text('build_log_tail'), error: varchar('error', { length: 240 }),
+  startedAt: time('started_at'), finishedAt: time('finished_at'), createdAt: created(),
+}, (t) => [index('app_deployments_app_idx').on(t.appId, t.createdAt)]);
 
 export const auditEvents = pgTable('audit_events', {
   id: uuid('id').primaryKey().defaultRandom(), actorUserId: uuid('actor_user_id').references(() => users.id),

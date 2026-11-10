@@ -127,4 +127,11 @@ describe('SMS provider selection', () => {
     expect(availability(envWith({ SMS_PROVIDER: 'arkesel', ARKESEL_API_KEY: '' })).sms).toBe(false);
     expect(availability(envWith({ SMS_PROVIDER: 'arkesel', ARKESEL_API_KEY: 'ark_test_key' })).sms).toBe(true);
   });
+
+  it('bases hosting availability on the host agent URL and token together', () => {
+    expect(availability(envWith({ HOST_AGENT_URL: '', HOST_AGENT_TOKEN: '' })).hosting).toBe(false);
+    // Explicit empties: other test files set these env vars process-wide.
+    expect(availability(envWith({ HOST_AGENT_URL: 'http://10.0.0.9:9400', HOST_AGENT_TOKEN: '' })).hosting).toBe(false);
+    expect(availability(envWith({ HOST_AGENT_URL: 'http://10.0.0.9:9400', HOST_AGENT_TOKEN: 'agent-token' })).hosting).toBe(true);
+  });
 });

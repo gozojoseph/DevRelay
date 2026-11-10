@@ -44,6 +44,12 @@ const environment = z.object({
   META_APP_ID: z.string().optional(), META_APP_SECRET: z.string().optional(), META_CONFIG_ID: z.string().optional(),
   META_GRAPH_VERSION: z.string().regex(/^v\d+\.0$/).default('v27.0'),
   META_VERIFY_TOKEN: z.string().optional(), META_PRODUCTION_APPROVED: z.enum(['true', 'false']).default('false'),
+  // DevRelay Cloud (docs/hosting.md): the host agent that builds and runs
+  // customer containers. Both keys required for hosting to be available;
+  // HOSTING_BASE_DOMAIN (e.g. apps.devrelay.cloud) is the display fallback
+  // when the agent does not return an app URL.
+  HOST_AGENT_URL: optionalEnv(z.url().optional()), HOST_AGENT_TOKEN: z.string().optional(),
+  HOSTING_BASE_DOMAIN: optionalEnv(z.string().regex(/^[a-z0-9.-]+$/).optional()),
   WORKER_POLL_MS: z.coerce.number().int().min(250).max(60000).default(1500),
   // Neon platform services (env pulled by `neon deploy`). All optional;
   // each Neon service counts as unavailable when its env is absent.
@@ -94,6 +100,7 @@ export function availability(c: AppConfig = config()) {
     sms: smsAvailable(c),
     whatsappTest: Boolean(c.META_APP_ID && c.META_APP_SECRET && c.META_CONFIG_ID && c.META_VERIFY_TOKEN),
     whatsappLive: Boolean(c.META_PRODUCTION_APPROVED === 'true' && c.NODE_ENV === 'production' && c.META_APP_ID && c.META_APP_SECRET && c.META_CONFIG_ID && c.META_VERIFY_TOKEN),
+    hosting: Boolean(c.HOST_AGENT_URL && c.HOST_AGENT_TOKEN),
   };
 }
 

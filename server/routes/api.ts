@@ -1,12 +1,15 @@
 import { Router } from 'express';
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, lt, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
-import { messages, deliveryEvents } from '../db/schema.js';
+import { appDeployments, hostedApps, messages, deliveryEvents } from '../db/schema.js';
 import { ApiError, assert, ok } from '../lib/http.js';
 import { requireApiKey, requireScope } from '../middleware/auth.js';
 import { balance } from '../services/ledger.js';
 import { apiRateLimit, sendSms, sendSmsSchema, sendWhatsapp, sendWhatsappSchema } from '../services/messaging.js';
+import { hostingPlans, createHostingApp, redeployApp, stopHostingApp, startHostingApp, deleteHostingApp, getPlan } from '../services/hosting.js';
+import { httpHostAgent } from '../providers/host-agent.js';
+import { ProviderFailure } from '../providers/types.js';
 
 export const apiRouter = Router();
 apiRouter.use(requireApiKey);
@@ -77,4 +80,104 @@ apiRouter.get('/messages/:id', requireScope('messaging:read'), async (req, res) 
 
 apiRouter.get('/balance', requireScope('messaging:read'), async (req, res) => {
   ok(req, res, { ...(await balance(req.apiActor!.accountId)), currency: 'GHS' });
+});
+
+// ── DevRelay Cloud: hosted apps (docs/hosting.md). Plans are charged monthly
+// in advance from the GHS wallet; failed redeploys never stop a live container.
+function agentErrorToApi(error: ProviderFailure): ApiError {
+  if (error.publicCode === 'HOSTING_NOT_CONFIGURED') {
+    return new ApiError(503, 'HOSTING_NOT_CONFIGURED', 'App hosting is not available yet. Contact support.');
+  }
+  if (error.kind === 'retryable') return new ApiError(429, 'HOST_AGENT_BUSY', 'The host agent is busy. Try again shortly.');
+  return new ApiError(502, 'HOST_AGENT_ERROR', 'The host agent returned an error. Nothing was billed for this action.');
+}
+
+const createAppSchema = z.object({
+  name: z.string().trim().min(2).max(60),
+  repoUrl: z.string().trim().url().max(500).startsWith('https://'),
+  repoToken: z.string().min(1).max(300).optional(),
+  branch: z.string().trim().min(1).max(120).default('main'),
+  builder: z.enum(['dockerfile', 'node']).default('node'),
+  plan: z.string().trim().min(1).max(20),
+});
+
+apiRouter.get('/hosting/plans', requireScope('hosting:read'), async (req, res) => {
+  ok(req, res, { currency: 'GHS', periodDays: 30, items: Object.values(hostingPlans) });
+});
+
+apiRouter.post('/apps', requireScope('hosting:write'), async (req, res) => {
+  const body = createAppSchema.parse(req.body);
+  getPlan(body.plan); // 400 with the available plan list when unknown
+  const result = await createHostingApp({ accountId: req.apiActor!.accountId, projectId: req.apiActor!.projectId, ...body });
+  ok(req, res, { id: result.app.id, name: result.app.name, slug: result.app.slug, plan: result.app.plan,
+    status: result.app.status, deploymentId: result.deploymentId }, 202);
+});
+
+apiRouter.get('/apps', requireScope('hosting:read'), async (req, res) => {
+  const rows = await db.select({ id: hostedApps.id, name: hostedApps.name, slug: hostedApps.slug,
+    plan: hostedApps.plan, status: hostedApps.status, url: hostedApps.url, branch: hostedApps.branch,
+    builder: hostedApps.builder, planExpiresAt: hostedApps.planExpiresAt, lastError: hostedApps.lastError,
+    createdAt: hostedApps.createdAt }).from(hostedApps)
+    .where(and(eq(hostedApps.projectId, req.apiActor!.projectId), eq(hostedApps.accountId, req.apiActor!.accountId),
+      ne(hostedApps.status, 'deleted')))
+    .orderBy(desc(hostedApps.createdAt)).limit(100);
+  ok(req, res, { items: rows });
+});
+
+async function ownedApp(req: import('express').Request, id: string) {
+  const [app] = await db.select().from(hostedApps).where(and(eq(hostedApps.id, id),
+    eq(hostedApps.projectId, req.apiActor!.projectId), eq(hostedApps.accountId, req.apiActor!.accountId),
+    ne(hostedApps.status, 'deleted')));
+  assert(app, 404, 'APP_NOT_FOUND', 'App not found.');
+  return app;
+}
+
+apiRouter.get('/apps/:id', requireScope('hosting:read'), async (req, res) => {
+  const id = z.uuid().parse(req.params.id);
+  const app = await ownedApp(req, id);
+  const deployments = await db.select({ id: appDeployments.id, ref: appDeployments.ref,
+    status: appDeployments.status, error: appDeployments.error, startedAt: appDeployments.startedAt,
+    finishedAt: appDeployments.finishedAt, createdAt: appDeployments.createdAt })
+    .from(appDeployments).where(eq(appDeployments.appId, id)).orderBy(desc(appDeployments.createdAt)).limit(10);
+  ok(req, res, { id: app.id, name: app.name, slug: app.slug, plan: app.plan, status: app.status,
+    url: app.url, branch: app.branch, builder: app.builder, planExpiresAt: app.planExpiresAt,
+    lastError: app.lastError, createdAt: app.createdAt, deployments });
+});
+
+apiRouter.post('/apps/:id/deploy', requireScope('hosting:write'), async (req, res) => {
+  const id = z.uuid().parse(req.params.id);
+  const app = await ownedApp(req, id);
+  const body = z.object({ ref: z.string().trim().min(1).max(120).optional() }).parse(req.body ?? {});
+  const result = await redeployApp({ accountId: req.apiActor!.accountId, projectId: req.apiActor!.projectId,
+    appId: app.id, ref: body.ref });
+  ok(req, res, result, 202);
+});
+
+for (const action of ['stop', 'start'] as const) {
+  apiRouter.post(`/apps/:id/${action}`, requireScope('hosting:write'), async (req, res) => {
+    const id = z.uuid().parse(req.params.id);
+    await ownedApp(req, id);
+    if (action === 'stop') await stopHostingApp(req.apiActor!.accountId, id);
+    else await startHostingApp(req.apiActor!.accountId, id);
+    ok(req, res, { queued: true }, 202);
+  });
+}
+
+apiRouter.delete('/apps/:id', requireScope('hosting:write'), async (req, res) => {
+  const id = z.uuid().parse(req.params.id);
+  await ownedApp(req, id);
+  await deleteHostingApp(req.apiActor!.accountId, id);
+  ok(req, res, { queued: true }, 202);
+});
+
+apiRouter.get('/apps/:id/logs', requireScope('hosting:read'), async (req, res) => {
+  const id = z.uuid().parse(req.params.id);
+  const app = await ownedApp(req, id);
+  try {
+    const { tail } = await httpHostAgent.logs(app.id);
+    ok(req, res, { tail });
+  } catch (error) {
+    if (error instanceof ProviderFailure) throw agentErrorToApi(error);
+    throw error;
+  }
 });

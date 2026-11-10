@@ -14,6 +14,7 @@ import { settleReservation } from './ledger.js';
 import { markAccepted, markFailedWithoutCharge, markPendingReconciliation, markRetryable } from './status.js';
 import { deliverWebhook } from './webhooks.js';
 import { reconcilePayment } from './payments.js';
+import { processAppAction, processAppDeploy, renewDueHostingApps } from './hosting.js';
 import { processGatewayCallback, processMetaEvent, processAtCallback } from './events.js';
 
 /** One selected SMS rail for the whole worker (config choice, not per-message). */
@@ -146,6 +147,11 @@ export async function processJob(job: { kind: string; payload: Record<string, un
     case 'meta.webhook': return processMetaEvent(String(job.payload.eventId));
     case 'at.callback': return processAtCallback(String(job.payload.eventId));
     case 'gateway.callback': return processGatewayCallback(String(job.payload.eventId));
+    case 'app.deploy': return processAppDeploy(String(job.payload.deploymentId));
+    case 'app.stop': return processAppAction(String(job.payload.appId), 'stop');
+    case 'app.start': return processAppAction(String(job.payload.appId), 'start');
+    case 'app.delete': return processAppAction(String(job.payload.appId), 'delete');
+    case 'hosting.renew': return renewDueHostingApps();
     default: return { done: false, dead: true, code: 'UNKNOWN_JOB_KIND' };
   }
 }
