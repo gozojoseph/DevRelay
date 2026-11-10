@@ -93,6 +93,10 @@ authRouter.post('/login', async (req, res) => {
   const valid = user ? await verifyPassword(input.password, user.passwordHash) : await verifyPassword(input.password, DUMMY_HASH);
   if (!user || !valid) throw new ApiError(401, 'LOGIN_FAILED', 'Invalid email, password or authentication code.');
   if (user.role === 'admin' && user.mfaSecretEncrypted) {
+    // Disclose the MFA step only after the password has verified — role stays
+    // private to anyone who cannot authenticate, and the UI can distinguish a
+    // missing code from an invalid one.
+    if (!input.mfaCode) throw new ApiError(401, 'MFA_REQUIRED', 'Enter the 6-digit code from your authenticator app.');
     const secret = decrypt(user.mfaSecretEncrypted, `mfa:${user.id}`);
     const step = validTotpStep(secret, input.mfaCode ?? '');
     if (step === null) throw new ApiError(401, 'LOGIN_FAILED', 'Invalid email, password or authentication code.');

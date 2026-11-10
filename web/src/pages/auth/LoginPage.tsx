@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { KeyRound, LogIn } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { errorMessage } from '../../lib/api';
+import { ApiError, errorMessage } from '../../lib/api';
 import { usePageTitle } from '../../lib/hooks';
 import { Button, Callout, Field, TextInput } from '../../components/ui';
 import { AuthShell } from './AuthShell';
@@ -39,7 +39,9 @@ export function LoginPage() {
       else navigate(from && from.startsWith('/app') ? from : '/app', { replace: true });
     } catch (cause) {
       setError(errorMessage(cause));
-      if (!showMfa) setShowMfa(true);
+      // Reveal the code field only when the server says the password verified
+      // and a TOTP step is owed — a plain failed login must not imply MFA.
+      if (cause instanceof ApiError && cause.code === 'MFA_REQUIRED') setShowMfa(true);
     } finally {
       setLoading(false);
     }
