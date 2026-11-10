@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import {
-  ArrowRight, CheckCircle2, Code2, CreditCard, KeyRound, LockKeyhole, MessageCircle, ReceiptText,
-  ShieldCheck, Smartphone, Webhook, Zap,
+  ArrowRight, CheckCircle2, Code2, CreditCard, Globe, KeyRound, LockKeyhole, MessageCircle, ReceiptText,
+  Server, ShieldCheck, Smartphone, Webhook, Zap,
 } from 'lucide-react';
 import { useApi, usePageTitle } from '../../lib/hooks';
 import { formatMinor } from '../../lib/format';
@@ -15,6 +15,8 @@ const features = [
   { icon: Webhook, title: 'Signed delivery webhooks', body: 'Receive HMAC-signed events for accepted, sent, delivered, read and failed messages, with retries and an audit trail.' },
   { icon: ShieldCheck, title: 'Consent by default', body: 'Outbound sends require a consent record. Opt-outs are suppressed permanently and every message is attributable to a project.' },
   { icon: KeyRound, title: 'Project-scoped API keys', body: 'Issue scoped keys, rotate or revoke them, enforce per-minute rate limits and keep an append-only audit history.' },
+  { icon: Server, title: 'DevRelay Cloud — app hosting', body: 'Deploy a backend from a Git repo to one HTTPS URL, billed monthly in advance from the same wallet. Launching soon — plans are already published on the pricing page.' },
+  { icon: Globe, title: 'Domains with your credits', body: 'Search, buy and auto-renew domains with GHS credits — no card needed. Launching soon; renewal warnings are explicit because unrenewed domains can be lost.' },
 ];
 
 const steps = [
@@ -67,6 +69,11 @@ export function HomePage() {
                   <span className="mx-1 h-4 w-px self-center bg-line" />
                   <StatusBadge status={flags.fundingAvailable ? 'active' : 'disabled'} />
                   <span className="self-center text-xs text-muted">Funding {flags.fundingAvailable ? 'available' : 'not configured'}</span>
+                  <span className="mx-1 h-4 w-px self-center bg-line" />
+                  <StatusBadge status={flags.hostingAvailable || flags.domainsAvailable ? 'pending' : 'disabled'} />
+                  <span className="self-center text-xs text-muted">
+                    DevRelay Cloud (hosting + domains) {flags.hostingAvailable || flags.domainsAvailable ? 'available' : 'coming soon'}
+                  </span>
                 </>
               ) : (
                 <span className="text-xs text-muted">Checking provider configuration…</span>

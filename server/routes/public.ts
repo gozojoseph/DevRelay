@@ -6,6 +6,8 @@ import { platformSettings, pricingVersions, supportRequests, rateCounters } from
 import { availability, config, neonAvailability } from '../config.js';
 import { ApiError, ok } from '../lib/http.js';
 import { sha256 } from '../lib/security.js';
+import { hostingPlans } from '../services/hosting.js';
+import { DOMAIN_TLDS, DOMAIN_YEAR_DAYS } from '../services/domains.js';
 
 export const publicRouter = Router();
 
@@ -59,6 +61,19 @@ publicRouter.get('/status', async (req, res) => {
   whatsappMode: flags.whatsappLive ? 'production' : flags.whatsappTest ? 'test' : 'unavailable',
   neon: neonAvailability(),
   note: 'This reports server configuration only, not upstream live delivery health.' });
+});
+
+// DevRelay Cloud (docs/hosting.md, docs/domains.md): public plans and TLD
+// prices straight from the service catalogs — the frontend never invents
+// prices. Availability flags come from the adapters, so "coming soon" is
+// shown until the real integrations are switched on.
+publicRouter.get('/cloud', async (req, res) => {
+  const flags = availability();
+  ok(req, res, {
+    hosting: { available: flags.hosting, plans: Object.values(hostingPlans) },
+    domains: { available: flags.domains, periodDays: DOMAIN_YEAR_DAYS,
+      pricing: Object.values(DOMAIN_TLDS).map(({ tld, priceMinor }) => ({ tld, priceMinor })) },
+  });
 });
 
 publicRouter.post('/support', async (req, res) => {

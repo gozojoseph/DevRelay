@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Calculator, Info, MessageCircle, Smartphone } from 'lucide-react';
+import { ArrowRight, Calculator, Info, MessageCircle, Server, Smartphone } from 'lucide-react';
 import { useApi, usePageTitle } from '../../lib/hooks';
 import { formatDate, formatMinor, titleCase } from '../../lib/format';
-import type { PricingItem, PricingResponse, PublicConfig } from '../../lib/types';
+import type { CloudPublic, PricingItem, PricingResponse, PublicConfig } from '../../lib/types';
 import { Badge, buttonClass, Callout, EmptyState, Loading, PageHeader, Panel } from '../../components/ui';
 
 function PriceTable({ items }: { items: PricingItem[] }) {
@@ -32,6 +32,7 @@ export function PricingPage() {
   usePageTitle('Pricing');
   const pricing = useApi<PricingResponse>('/public/pricing');
   const config = useApi<PublicConfig>('/public/config');
+  const cloud = useApi<CloudPublic>('/public/cloud');
   const sms = pricing.data?.items.filter(item => item.channel === 'sms') ?? [];
   const whatsapp = pricing.data?.items.filter(item => item.channel === 'whatsapp') ?? [];
   return (
@@ -103,6 +104,47 @@ export function PricingPage() {
           </div>
         </div>
       )}
+
+      <Panel className="mt-8" title={<span className="inline-flex items-center gap-2"><Server className="h-4 w-4 text-brand-600" /> DevRelay Cloud — app hosting & domains</span>}
+        description="The same GHS wallet pays for hosting and domains: monthly plans charged in advance, domains with auto-renew and explicit lapse warnings."
+        action={<div className="flex flex-wrap gap-2">
+          <Badge tone={cloud.data?.hosting.available ? 'success' : 'neutral'} dot>{cloud.data?.hosting.available ? 'Hosting live' : 'Hosting coming soon'}</Badge>
+          <Badge tone={cloud.data?.domains.available ? 'success' : 'neutral'} dot>{cloud.data?.domains.available ? 'Domains live' : 'Domains coming soon'}</Badge>
+        </div>}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(cloud.data?.hosting.plans ?? []).map(plan => (
+            <div key={plan.id} className="rounded-xl border border-line bg-elevated/40 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-ink">{plan.label}</p>
+                <Badge tone="neutral">{plan.memoryMb} MB · {plan.cpuMilli} mCPU</Badge>
+              </div>
+              <p className="mt-2 text-2xl font-semibold tracking-tight text-ink">{formatMinor(plan.priceMinor)}<span className="text-sm font-normal text-muted">/month</span></p>
+              <p className="mt-1 text-xs text-muted">One container per app, Git deploys, HTTPS URL and logs.</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <table className="data-table">
+            <thead><tr><th>Domain</th><th className="text-right">Price / year</th></tr></thead>
+            <tbody>
+              {(cloud.data?.domains.pricing ?? []).map(entry => (
+                <tr key={entry.tld}>
+                  <td className="font-medium text-ink">.{entry.tld}</td>
+                  <td className="text-right font-semibold text-ink">{formatMinor(entry.priceMinor)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-4">
+          <Callout tone="info">
+            Prices are published from the platform catalogs — never invented on this page. Hosting is billed per 30-day period
+            in advance (a paused app never bills silently); domains renew yearly and warn at 30/14/7/1 days because an
+            unrenewed domain can be lost. Both unlock in the dashboard {cloud.data?.hosting.available || cloud.data?.domains.available ? '' : 'once the infrastructure goes live'}.
+          </Callout>
+        </div>
+      </Panel>
+
       <div className="mt-10 flex flex-col items-start justify-between gap-4 rounded-2xl border border-line bg-surface px-6 py-6 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-base font-semibold text-ink">Ready to test with a real account?</h2>

@@ -9,6 +9,13 @@ export interface PublicConfig {
   minimumFundingMinor: number | null; fundingAvailable: boolean; smsAvailable: boolean; whatsappAvailable: boolean;
   whatsappProductionApproved: boolean; metaAppId: string | null; metaConfigId: string | null;
   metaGraphVersion: string; environment: string; pricingConfigured: boolean;
+  hostingAvailable: boolean; domainsAvailable: boolean;
+}
+export interface HostingPlanPublic { id: string; label: string; memoryMb: number; cpuMilli: number; priceMinor: number }
+export interface DomainPricePublic { tld: string; priceMinor: number }
+export interface CloudPublic {
+  hosting: { available: boolean; plans: HostingPlanPublic[] };
+  domains: { available: boolean; periodDays: number; pricing: DomainPricePublic[] };
 }
 export interface PricingItem { id: string; channel: Channel; country: string; route: string; category: string;
   customerUnitMinor: number; effectiveFrom: string }
