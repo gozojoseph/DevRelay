@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { ProviderFailure, type SmsAdapter } from './types.js';
 
-const resultSchema = z.object({ SMSMessageData: z.object({ Recipients: z.array(z.object({
+const resultSchema = z.object({ SMSMessageData: z.object({ Message: z.string().optional(), Recipients: z.array(z.object({
   statusCode: z.number().int(), number: z.string(), messageId: z.string().optional(), cost: z.string().optional(),
 })) }) });
 
@@ -22,8 +22,11 @@ export const africasTalking: SmsAdapter = {
     if (!c.AT_API_KEY || !c.AT_USERNAME) throw new ProviderFailure('rejected', 'SMS_NOT_CONFIGURED');
     const sandbox = c.AT_MODE === 'sandbox';
     const url = sandbox ? 'https://api.sandbox.africastalking.com/version1/messaging' : 'https://api.africastalking.com/version1/messaging/bulk';
+    // Sandbox forbids custom sender IDs (approval is a live-account feature):
+    // with `from` it answers 201 "InvalidSenderId" and sends nothing, so the
+    // field is omitted there and the message leaves from the sandbox default.
     const payload = sandbox
-      ? new URLSearchParams({ username: c.AT_USERNAME, to: recipient, from: sender, message: body }).toString()
+      ? new URLSearchParams({ username: c.AT_USERNAME, to: recipient, message: body }).toString()
       : JSON.stringify({ username: c.AT_USERNAME, phoneNumbers: [recipient], senderId: sender, message: body, enqueue: 1 });
     let response: globalThis.Response;
     try {
@@ -37,7 +40,16 @@ export const africasTalking: SmsAdapter = {
     let data: z.infer<typeof resultSchema>;
     try { data = resultSchema.parse(await response.json()); } catch { throw new ProviderFailure('ambiguous', 'SMS_RESPONSE_UNCERTAIN'); }
     const result = data.SMSMessageData.Recipients.find(item => item.number === recipient);
-    if (!result) throw new ProviderFailure('ambiguous', 'SMS_RESPONSE_UNCERTAIN');
+    if (!result) {
+      // An empty Recipients list is a definitive refusal — the provider named
+      // the error (for example InvalidSenderId) and dispatched nothing — so it
+      // fails with a charge release instead of parking credits indefinitely.
+      if (data.SMSMessageData.Recipients.length === 0) {
+        throw new ProviderFailure('rejected',
+          data.SMSMessageData.Message === 'InvalidSenderId' ? 'SMS_PROVIDER_INVALID_SENDER_ID' : 'SMS_PROVIDER_REJECTED');
+      }
+      throw new ProviderFailure('ambiguous', 'SMS_RESPONSE_UNCERTAIN');
+    }
     if ([100, 101, 102].includes(result.statusCode) && result.messageId && result.messageId !== 'None') {
       return { id: result.messageId, ...parseSupplierCost(result.cost) };
     }

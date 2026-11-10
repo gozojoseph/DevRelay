@@ -51,7 +51,11 @@ See `.env.example` for the full list. The important gates (from
 4. Behavior baked into the code: live mode posts to
    `/version1/messaging/bulk`, sandbox posts to `/version1/messaging`.
    A sandbox account cannot send from a production deployment
-   (`readConfig` guard).
+   (`readConfig` guard). The sandbox cannot use custom sender IDs (approval
+   is live-only), so sandbox sends omit `from` and arrive from the sandbox
+   default sender; a 201 answer naming an error (for example
+   `InvalidSenderId`) with no recipients is treated as a definite rejection
+   whose reserved credits are released via admin reconciliation.
 5. Sender IDs are managed in `senderRequests` (status `approved` before any
    send). Admin approves them in the admin console.
 
