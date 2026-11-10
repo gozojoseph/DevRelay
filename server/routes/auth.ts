@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import nodemailer from 'nodemailer';
 import { db } from '../db/client.js';
 import { accounts, auditEvents, authTokens, rateCounters, sessions, users } from '../db/schema.js';
 import { availability, config } from '../config.js';
@@ -9,6 +8,7 @@ import { ApiError, assert, ok } from '../lib/http.js';
 import { createTotpSecret, csrfToken, decrypt, encrypt, hashPassword, randomToken, sha256, validTotpStep, verifyPassword } from '../lib/security.js';
 import { cookieName, requireCsrf, requireSession } from '../middleware/auth.js';
 import { createWallet } from '../services/ledger.js';
+import { mail } from '../lib/mail.js';
 
 export const authRouter = Router();
 const email = z.email().max(254).transform(value => value.toLowerCase().trim());
@@ -20,16 +20,6 @@ async function throttle(key: string, limit: number) {
   const [entry] = await db.insert(rateCounters).values({ key: sha256(key), minute, count: 1 })
     .onConflictDoUpdate({ target: [rateCounters.key, rateCounters.minute], set: { count: sql`${rateCounters.count} + 1` } }).returning();
   if (entry && entry.count > limit) throw new ApiError(429, 'RATE_LIMITED', 'Too many attempts. Please wait and try again.');
-}
-async function mail(to: string, subject: string, url: string) {
-  const c = config();
-  if (c.EMAIL_MODE === 'console' && c.NODE_ENV !== 'production') {
-    console.info(`[DEVELOPMENT EMAIL ONLY] To: ${to} | ${subject} | ${url}`); return;
-  }
-  if (!c.SMTP_HOST || !c.EMAIL_FROM) throw new ApiError(503, 'EMAIL_UNAVAILABLE', 'Email delivery is not configured. Contact support.');
-  const transport = nodemailer.createTransport({ host: c.SMTP_HOST, port: c.SMTP_PORT, secure: c.SMTP_PORT === 465,
-    auth: c.SMTP_USER ? { user: c.SMTP_USER, pass: c.SMTP_PASSWORD } : undefined });
-  await transport.sendMail({ from: c.EMAIL_FROM, to, subject, text: `${subject}\n\nOpen this link (expires automatically): ${url}\n\nIf you did not request this, ignore this message.` });
 }
 async function issueToken(userId: string, kind: 'verify' | 'reset') {
   const token = randomToken();

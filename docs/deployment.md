@@ -34,8 +34,10 @@ Copy `.env.example` and set at minimum:
   HTTP origins in production)
 - `SESSION_SECRET`, `ENCRYPTION_KEY` — generated secrets
   (`openssl rand -base64 48`, `openssl rand -hex 32`)
-- `EMAIL_MODE=smtp` with `SMTP_HOST/PORT/USER/PASSWORD` and `EMAIL_FROM` and
-  `SUPPORT_EMAIL` (required in production)
+- `EMAIL_MODE` — either `mailtrap` (with `MAILTRAP_API_TOKEN`,
+  `MAILTRAP_FROM_EMAIL`, optional `MAILTRAP_FROM_NAME`) or `smtp` (with
+  `SMTP_HOST/PORT/USER/PASSWORD` and `EMAIL_FROM`); a real rail is required in
+  production, and `SUPPORT_EMAIL` must be set
 - Provider credentials per `docs/providers.md`; sandbox credentials are
   rejected in production configs (`AT_MODE=sandbox` + `AT_API_KEY` refuses to
   start).

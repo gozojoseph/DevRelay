@@ -20,7 +20,7 @@ Current quality gates (verified 2026-11-09):
 | Lint | `npm run lint` | ✅ |
 | Build (API + web) | `npm run build` | ✅ (~260 kB main chunk + per-route chunks) |
 | Migration check | `npm run db:check` | ✅ |
-| Tests | `npm test` (7 files / 76 tests) | ✅ |
+| Tests | `npm test` (8 files / 85 tests, 2026-11-10) | ✅ |
 | Dependency audit | `npm audit --audit-level=high` | ✅ 0 findings |
 
 Test coverage highlights (`tests/`):
@@ -90,3 +90,17 @@ node dist/server/scripts/bootstrap-admin.js   # ADMIN_EMAIL from env → role=ad
 ```
 
 Remaining after this phase: buy AI Gateway credits (`https://console.neon.tech/app/org-icy-fog-43699121/billing#ai_gateway_credits`) to unlock the 63-model catalog; enroll TOTP by first login; review the four held Dependabot majors (#6/#9 currently red, #7/#8 green-awaiting-review).
+
+## Live on Render + honest email rail (2026-11-10)
+
+| Item | State |
+| --- | --- |
+| Render deploy | ✅ live at `https://devrelay-0edn.onrender.com` — free web plan, single origin (API serves the SPA), Docker build clean; `/healthz` 200 runs a real Neon `SELECT 1`; SPA deep links + API JSON-404 contract verified; pooled `DATABASE_URL` proven |
+| First-deploy incident | ✅ documented (runbook §2.4 incident note): empty Blueprint "unresolved properties" form → empty env group → boot zod crash; fix = set values on the **service** Environment tab |
+| Admin login / MFA | ✅ idempotent TOTP setup fix (`d290f0c`) proven live — admin MFA enrolled (`mfa_pending` cleared); password-only unattended login honestly 401s (factor correctly refused); temp password rotation still pending |
+| Provider channels | ✅ honestly `false` — no Paystack/AT/Meta credentials exist; SMS/WhatsApp/funding report unavailable until real rails are verified (§6); worker deploys only at go-live (`plan: starter`) |
+| SMTP rail retired | ❌→superseded: Gmail answered real `535-5.7.8 Username and Password not accepted` — the chat-shared "app password" string is **not** a valid app password (proved independently of the app via `smtp.gmail.com` verify); Explains register/reset 500s (mail step fails after account commit) |
+| Mailtrap rail | ✅ implemented: `mailtrap` SDK 6.2.0; `server/lib/mail.ts` extracted from `routes/auth.ts` (console + SMTP branches byte-identical, shared 503 `EMAIL_UNAVAILABLE`); `EMAIL_MODE=mailtrap` uses the official client (`category: 'DevRelay transactional'`); production boot gate now demands **one real rail** (SMTP *or* Mailtrap) and refuses Mailtrap sandbox in production (mirrors AT gate) |
+| Gate coverage | ✅ 85/85 tests (+6 config-gate tests: SMTP/Mailtrap acceptance, missing-rail refusal ×4, sandbox-refusal, sandbox-outside-prod, AT-gate regression guard); typecheck/lint/build/db:check green; `npm audit` 0 findings incl. new `axios`/`qs` deps |
+| Deploy artifacts | ✅ `render.yaml` env group extended (`EMAIL_MODE`, `MAILTRAP_*`, sandbox pair); `.env.example`/.env updated; `.env.render` regenerated for the real subdomain with `EMAIL_MODE=mailtrap` + 2 clearly-marked placeholders; runbook §0/§2.4/§3/§4.4 rewritten for both rails |
+| Next user actions | create Mailtrap token (Admin access, `mailtrap.io/settings/api-tokens`) → either verified sending domain (live) or sandbox pair for a quick test → paste updated `.env.render` on the Render service Environment tab → auto-redeploy → `request-reset` should return 200; sent log: `mailtrap.io/sending/email_logs`; then rotate Neon DB password + admin password |

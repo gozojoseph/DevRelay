@@ -7,9 +7,16 @@ const environment = z.object({
   DATABASE_URL: z.string().startsWith('postgres'),
   APP_ORIGIN: z.url(), PUBLIC_API_URL: z.url(),
   SESSION_SECRET: z.string().min(32), ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/),
-  EMAIL_MODE: z.enum(['smtp', 'console']).default('smtp'),
+  EMAIL_MODE: z.enum(['smtp', 'console', 'mailtrap']).default('smtp'),
   SMTP_HOST: z.string().optional(), SMTP_PORT: z.coerce.number().int().default(587),
   SMTP_USER: z.string().optional(), SMTP_PASSWORD: z.string().optional(), EMAIL_FROM: z.string().optional(),
+  // Mailtrap Email API rail (EMAIL_MODE=mailtrap). Token:
+  // https://mailtrap.io/settings/api-tokens — live sending needs a verified
+  // sending domain; sandbox testing needs MAILTRAP_INBOX_ID (never in prod).
+  MAILTRAP_API_TOKEN: z.string().optional(), MAILTRAP_FROM_EMAIL: z.string().optional(),
+  MAILTRAP_FROM_NAME: z.string().optional(),
+  MAILTRAP_USE_SANDBOX: z.enum(['true', 'false']).default('false'),
+  MAILTRAP_INBOX_ID: z.coerce.number().int().positive().optional(),
   SUPPORT_EMAIL: z.email().optional(),
   PAYSTACK_SECRET_KEY: z.string().optional(), PAYSTACK_WEBHOOK_SECRET: z.string().optional(),
   PAYSTACK_WEBHOOK_SECRETS: z.string().optional(),
@@ -37,7 +44,14 @@ export function readConfig(values: NodeJS.ProcessEnv = process.env) {
   const env = environment.parse(values);
   if (env.NODE_ENV === 'production') {
     if (!env.APP_ORIGIN.startsWith('https://') || !env.PUBLIC_API_URL.startsWith('https://')) throw new Error('HTTPS public origins required in production');
-    if (env.EMAIL_MODE !== 'smtp' || !env.SMTP_HOST || !env.EMAIL_FROM) throw new Error('SMTP required in production');
+    // Email must be really deliverable in production — one honest rail,
+    // chosen by EMAIL_MODE: legacy SMTP or the Mailtrap Email API.
+    const smtpReady = env.EMAIL_MODE === 'smtp' && Boolean(env.SMTP_HOST && env.EMAIL_FROM);
+    const mailtrapReady = env.EMAIL_MODE === 'mailtrap' && Boolean(env.MAILTRAP_API_TOKEN && env.MAILTRAP_FROM_EMAIL);
+    if (!smtpReady && !mailtrapReady) {
+      throw new Error('Real email delivery required in production: EMAIL_MODE=smtp with SMTP_HOST+EMAIL_FROM, or mailtrap with MAILTRAP_API_TOKEN+MAILTRAP_FROM_EMAIL');
+    }
+    if (env.EMAIL_MODE === 'mailtrap' && env.MAILTRAP_USE_SANDBOX === 'true') throw new Error('Mailtrap sandbox cannot send from production');
     if (env.AT_MODE === 'sandbox' && env.AT_API_KEY) throw new Error('AT sandbox credentials cannot send from production');
   }
   return env;

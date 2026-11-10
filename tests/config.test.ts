@@ -55,3 +55,50 @@ describe('Neon service availability', () => {
       .toBe('https://br-lingering-cell-bdevndeh-hello.compute.c-8.us-east-2.aws.neon.tech/');
   });
 });
+
+describe('production email delivery gate', () => {
+  // Test env seeds AT sandbox stubs (setup-env.ts) that the production boot
+  // gate rightly refuses — force them out so the email gate is what's tested.
+  const prod = {
+    NODE_ENV: 'production',
+    APP_ORIGIN: 'https://devrelay.example.com',
+    PUBLIC_API_URL: 'https://devrelay.example.com',
+    AT_MODE: 'live',
+  };
+
+  it('accepts a really-configured SMTP rail', () => {
+    const c = envWith({ ...prod, EMAIL_MODE: 'smtp', SMTP_HOST: 'smtp.gmail.com', EMAIL_FROM: 'DevRelay <no-reply@devrelay.example.com>' });
+    expect(c.EMAIL_MODE).toBe('smtp');
+  });
+
+  it('accepts a really-configured Mailtrap rail', () => {
+    const c = envWith({ ...prod, EMAIL_MODE: 'mailtrap', MAILTRAP_API_TOKEN: 'mt-token',
+      MAILTRAP_FROM_EMAIL: 'no-reply@devrelay.example.com', MAILTRAP_FROM_NAME: 'DevRelay' });
+    expect(c.EMAIL_MODE).toBe('mailtrap');
+    expect(c.MAILTRAP_USE_SANDBOX).toBe('false');
+  });
+
+  it('refuses production without a real email rail', () => {
+    expect(() => envWith({ ...prod, EMAIL_MODE: 'smtp' })).toThrow(/email delivery/i);
+    expect(() => envWith({ ...prod, EMAIL_MODE: 'console' })).toThrow(/email delivery/i);
+    expect(() => envWith({ ...prod, EMAIL_MODE: 'mailtrap' })).toThrow(/email delivery/i);
+    expect(() => envWith({ ...prod, EMAIL_MODE: 'mailtrap', MAILTRAP_API_TOKEN: 'mt-token' })).toThrow(/email delivery/i);
+  });
+
+  it('never allows Mailtrap sandbox to send from production', () => {
+    expect(() => envWith({ ...prod, EMAIL_MODE: 'mailtrap', MAILTRAP_API_TOKEN: 'mt-token',
+      MAILTRAP_FROM_EMAIL: 'no-reply@devrelay.example.com', MAILTRAP_USE_SANDBOX: 'true', MAILTRAP_INBOX_ID: '1000001' }))
+      .toThrow(/sandbox/i);
+  });
+
+  it('allows Mailtrap sandbox only outside production', () => {
+    const c = envWith({ EMAIL_MODE: 'mailtrap', MAILTRAP_API_TOKEN: 'mt-token',
+      MAILTRAP_FROM_EMAIL: 'no-reply@devrelay.example.com', MAILTRAP_USE_SANDBOX: 'true', MAILTRAP_INBOX_ID: '1000001' });
+    expect(c.MAILTRAP_INBOX_ID).toBe(1000001);
+  });
+
+  it('still refuses AT sandbox keys in production (unchanged predecessor gate)', () => {
+    expect(() => envWith({ ...prod, AT_MODE: 'sandbox', EMAIL_MODE: 'smtp', SMTP_HOST: 'smtp.gmail.com', EMAIL_FROM: 'no-reply@devrelay.example.com' }))
+      .toThrow(/AT sandbox/i);
+  });
+});

@@ -19,7 +19,7 @@ From `server/config.ts` — boot **fails** unless:
 | Gate | Rule |
 | --- | --- |
 | Origins | `APP_ORIGIN` and `PUBLIC_API_URL` both start with `https://` |
-| Email | `EMAIL_MODE=smtp` with `SMTP_HOST` and `EMAIL_FROM` |
+| Email | one real rail by `EMAIL_MODE`: `smtp` needs `SMTP_HOST` + `EMAIL_FROM`, `mailtrap` needs `MAILTRAP_API_TOKEN` + `MAILTRAP_FROM_EMAIL`; sandbox testing (`MAILTRAP_USE_SANDBOX=true`) is refused |
 | SMS | `AT_MODE=sandbox` cannot be combined with an `AT_API_KEY` |
 | Cookies | Session cookies are `Secure` (automatic) |
 | Proxy | `trust proxy` is enabled — run the API behind your TLS terminator and firewall the direct app port |
@@ -140,7 +140,10 @@ Creation click-path (2026-11-10):
 | `APP_ORIGIN` / `PUBLIC_API_URL` | — | final URL, e.g. `https://devrelay-api.onrender.com` (single-origin app: same value twice) |
 | `ENCRYPTION_KEY` | `.env` → `ENCRYPTION_KEY` | **must match** the local value — MFA secrets are AES-256-GCM encrypted with it |
 | `SESSION_SECRET` | auto-generated (`generateValue`) | no need to paste |
-| `SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD` / `EMAIL_FROM` / `SUPPORT_EMAIL` | your e-mail provider | **required**: production refuses to boot without real SMTP (`server/config.ts` §production gate) |
+| `EMAIL_MODE` | — | `mailtrap` (Mailtrap Email API) or `smtp` — production refuses to boot without a real rail for the chosen mode (`server/config.ts` §production gate) |
+| `MAILTRAP_API_TOKEN` / `MAILTRAP_FROM_EMAIL` / `MAILTRAP_FROM_NAME` | Mailtrap → Settings → API tokens; a verified sending-domain address | required when `EMAIL_MODE=mailtrap`; token needs Admin access (https://mailtrap.io/settings/api-tokens) |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `EMAIL_FROM` | your SMTP provider (only for `EMAIL_MODE=smtp`) | optional while the Mailtrap rail is active |
+| `SUPPORT_EMAIL` | your support inbox | required |
 | provider keys (`PAYSTACK_*`, `AT_*`, `META_*`) | leave blank until live-verification phase | unset = feature honestly reports unavailable |
 
 4. Apply → first build → verify `https://…/healthz` (real `SELECT 1`) and `/api/public/status`.
@@ -174,9 +177,14 @@ APP_ORIGIN=https://app.yourdomain.com
 PUBLIC_API_URL=https://app.yourdomain.com
 SESSION_SECRET=<48 random bytes, base64url>
 ENCRYPTION_KEY=<64 hex>
-EMAIL_MODE=smtp
-SMTP_HOST=…  SMTP_PORT=587  SMTP_USER=…  SMTP_PASSWORD=…
-EMAIL_FROM=DevRelay <no-reply@yourdomain.com>
+EMAIL_MODE=mailtrap                          # or smtp — exactly one real rail
+MAILTRAP_API_TOKEN=…                        # https://mailtrap.io/settings/api-tokens
+MAILTRAP_FROM_EMAIL=hello@yourdomain.com    # address on your verified sending domain
+MAILTRAP_FROM_NAME=DevRelay
+MAILTRAP_USE_SANDBOX=false                  # sandbox mails are dev/preview only, never production
+# SMTP rail instead (EMAIL_MODE=smtp):
+# SMTP_HOST=…  SMTP_PORT=587  SMTP_USER=…  SMTP_PASSWORD=…
+# EMAIL_FROM=DevRelay <no-reply@yourdomain.com>
 SUPPORT_EMAIL=support@yourdomain.com
 PAYSTACK_SECRET_KEY=sk_live_…          # empty until Phase 4.1 done
 PAYSTACK_WEBHOOK_SECRET=…
@@ -225,9 +233,29 @@ Details per provider: [providers.md](providers.md).
 - Attach the WABA payment method; per-message pricing.
 - Pricing rows must cover categories you sell (`marketing`, `utility`, `authentication`, `service`, free entry points).
 
-### 4.4 SMTP
-- Domain-verified sender, SPF/DKIM/DMARC green (mail-tester), support inbox monitored.
-- Verification/password-reset emails use this path; port 465 ⇒ implicit TLS, 587 ⇒ STARTTLS (both handled).
+### 4.4 Email delivery (Mailtrap Email API — default, or SMTP)
+
+**Mailtrap rail (`EMAIL_MODE=mailtrap`, the chosen DevRelay rail):**
+
+- API token with Admin access: https://mailtrap.io/settings/api-tokens →
+  `MAILTRAP_API_TOKEN`.
+- Live sending requires a **verified sending domain** (add domain → SPF TXT,
+  DKIM CNAMEs `rwmt1/2._domainkey…`, DMARC, optional compliance questionnaire)
+  → use one of its addresses in `MAILTRAP_FROM_EMAIL`.
+- **Sandbox testing needs no domain**: `MAILTRAP_USE_SANDBOX=true` +
+  `MAILTRAP_INBOX_ID` (development/preview only — production boot refuses it).
+- Sent-mail log: https://mailtrap.io/sending/email_logs (filter category
+  `DevRelay transactional`).
+- Verification/password-reset emails use this path via the official `mailtrap`
+  SDK (`server/lib/mail.ts`); SDK errors surface as honest `500`s.
+
+**SMTP rail (`EMAIL_MODE=smtp`):**
+
+- Domain-verified sender, SPF/DKIM/DMARC green (mail-tester), support inbox
+  monitored. Port 465 ⇒ implicit TLS, 587 ⇒ STARTTLS (both handled).
+- Gmail as a sender only accepts its own **app passwords** (2-Step
+  Verification on → https://myaccount.google.com/apppasswords); normal
+  passwords and other Google key types answer `535-5.7.8`.
 
 ---
 
