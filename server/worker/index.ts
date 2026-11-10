@@ -4,6 +4,7 @@ import { claimJobs, finishJob, markJobDead, newWorkerId, retryJob } from '../ser
 import { processJob } from '../services/worker-core.js';
 import { reconcileOldPayments } from '../services/payments.js';
 import { renewDueHostingApps } from '../services/hosting.js';
+import { renewDueDomains } from '../services/domains.js';
 
 const c = config();
 const workerId = newWorkerId();
@@ -11,6 +12,7 @@ let stopping = false;
 let active = 0;
 let lastReconcile = 0;
 let lastHostingSweep = 0;
+let lastDomainSweep = 0;
 
 type Outcome = { done?: boolean; retry?: boolean; dead?: boolean; code?: string };
 
@@ -47,6 +49,10 @@ async function loop() {
       if (Date.now() - lastHostingSweep > 300_000) {
         lastHostingSweep = Date.now();
         await renewDueHostingApps().catch(() => undefined);
+      }
+      if (Date.now() - lastDomainSweep > 300_000) {
+        lastDomainSweep = Date.now();
+        await renewDueDomains().catch(() => undefined);
       }
     } catch (error) {
       console.error('Worker loop error', { name: error instanceof Error ? error.name : 'unknown' });

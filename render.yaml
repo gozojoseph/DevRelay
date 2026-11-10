@@ -117,6 +117,14 @@ envVarGroups:
         sync: false
       - key: HOSTING_BASE_DOMAIN
         sync: false
+      # Domain reseller API (docs/domains.md): set once the reseller package is
+      # bought and the documented contract is implemented.
+      - key: DOMAIN_RESELLER_URL
+        sync: false
+      - key: DOMAIN_RESELLER_USERNAME
+        sync: false
+      - key: DOMAIN_RESELLER_API_KEY
+        sync: false
 
 services:
   # Free web service (spins down after ~15 min idle; see runbook §2.4).

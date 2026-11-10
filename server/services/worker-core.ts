@@ -15,6 +15,7 @@ import { markAccepted, markFailedWithoutCharge, markPendingReconciliation, markR
 import { deliverWebhook } from './webhooks.js';
 import { reconcilePayment } from './payments.js';
 import { processAppAction, processAppDeploy, renewDueHostingApps } from './hosting.js';
+import { processDomainRegister, processDomainRenew, renewDueDomains } from './domains.js';
 import { processGatewayCallback, processMetaEvent, processAtCallback } from './events.js';
 
 /** One selected SMS rail for the whole worker (config choice, not per-message). */
@@ -152,6 +153,9 @@ export async function processJob(job: { kind: string; payload: Record<string, un
     case 'app.start': return processAppAction(String(job.payload.appId), 'start');
     case 'app.delete': return processAppAction(String(job.payload.appId), 'delete');
     case 'hosting.renew': return renewDueHostingApps();
+    case 'domain.register': return processDomainRegister(String(job.payload.orderId));
+    case 'domain.renew': return processDomainRenew(String(job.payload.orderId));
+    case 'domains.sweep': return renewDueDomains();
     default: return { done: false, dead: true, code: 'UNKNOWN_JOB_KIND' };
   }
 }

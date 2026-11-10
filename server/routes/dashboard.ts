@@ -61,7 +61,7 @@ dashboardRouter.get('/projects/:id/keys', async (req, res) => {
     .from(apiKeys).where(and(eq(apiKeys.projectId, projectId), eq(apiKeys.accountId, accountId(req)))).orderBy(desc(apiKeys.createdAt));
   ok(req, res, keys);
 });
-async function createKey(req: import('express').Request, projectId: string, keyName: string, scopes: ('messaging:send' | 'messaging:read' | 'hosting:read' | 'hosting:write')[]) {
+async function createKey(req: import('express').Request, projectId: string, keyName: string, scopes: ('messaging:send' | 'messaging:read' | 'hosting:read' | 'hosting:write' | 'domains:read' | 'domains:write')[]) {
   const [project] = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.accountId, accountId(req))));
   assert(project, 404, 'PROJECT_NOT_FOUND', 'Project not found.');
   const rawKey = `dr_${config().NODE_ENV === 'production' ? 'live' : 'test'}_${randomToken(32)}`;
@@ -73,7 +73,7 @@ async function createKey(req: import('express').Request, projectId: string, keyN
 }
 dashboardRouter.post('/projects/:id/keys', requireCsrf, async (req, res) => {
   const projectId = uuid.parse(req.params.id);
-  const input = z.object({ name, scopes: z.array(z.enum(['messaging:send', 'messaging:read', 'hosting:read', 'hosting:write'])).min(1).max(4) }).parse(req.body);
+  const input = z.object({ name, scopes: z.array(z.enum(['messaging:send', 'messaging:read', 'hosting:read', 'hosting:write', 'domains:read', 'domains:write'])).min(1).max(6) }).parse(req.body);
   ok(req, res, await createKey(req, projectId, input.name, [...new Set(input.scopes)]), 201);
 });
 dashboardRouter.post('/projects/:id/keys/:keyId/revoke', requireCsrf, async (req, res) => {

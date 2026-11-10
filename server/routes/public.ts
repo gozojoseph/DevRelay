@@ -26,6 +26,7 @@ publicRouter.get('/config', async (req, res) => {
     fundingAvailable: flags.paystack && Boolean(settings?.minimumFundingMinor),
     smsAvailable: flags.sms,
     hostingAvailable: flags.hosting,
+    domainsAvailable: flags.domains,
     whatsappAvailable: flags.whatsappTest || flags.whatsappLive,
     whatsappProductionApproved: flags.whatsappLive,
     metaAppId: flags.whatsappTest || flags.whatsappLive ? c.META_APP_ID ?? null : null,

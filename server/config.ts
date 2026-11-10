@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { domainResellerReady } from './providers/domain-reseller.js';
 
 // .env templates ship optional keys empty; an empty string must mean "unset",
 // not a validation error (z.url rejects '' and coerce.number reads it as 0,
@@ -50,6 +51,12 @@ const environment = z.object({
   // when the agent does not return an app URL.
   HOST_AGENT_URL: optionalEnv(z.url().optional()), HOST_AGENT_TOKEN: z.string().optional(),
   HOSTING_BASE_DOMAIN: optionalEnv(z.string().regex(/^[a-z0-9.-]+$/).optional()),
+  // In-platform domain reselling (docs/domains.md). The reseller API contract
+  // (endpoint, hourly token derivation) comes from the reseller area's API
+  // Docs tab; until the real adapter is implemented, domains stay unavailable
+  // regardless of env (domainResellerReady() gates the flag honestly).
+  DOMAIN_RESELLER_URL: optionalEnv(z.url().optional()),
+  DOMAIN_RESELLER_USERNAME: z.string().optional(), DOMAIN_RESELLER_API_KEY: z.string().optional(),
   WORKER_POLL_MS: z.coerce.number().int().min(250).max(60000).default(1500),
   // Neon platform services (env pulled by `neon deploy`). All optional;
   // each Neon service counts as unavailable when its env is absent.
@@ -101,6 +108,9 @@ export function availability(c: AppConfig = config()) {
     whatsappTest: Boolean(c.META_APP_ID && c.META_APP_SECRET && c.META_CONFIG_ID && c.META_VERIFY_TOKEN),
     whatsappLive: Boolean(c.META_PRODUCTION_APPROVED === 'true' && c.NODE_ENV === 'production' && c.META_APP_ID && c.META_APP_SECRET && c.META_CONFIG_ID && c.META_VERIFY_TOKEN),
     hosting: Boolean(c.HOST_AGENT_URL && c.HOST_AGENT_TOKEN),
+    // Adapter-driven, not env-driven: the stub adapter is never ready, so the
+    // flag cannot claim domain sales before the real reseller integration lands.
+    domains: domainResellerReady(),
   };
 }
 

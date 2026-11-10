@@ -134,4 +134,13 @@ describe('SMS provider selection', () => {
     expect(availability(envWith({ HOST_AGENT_URL: 'http://10.0.0.9:9400', HOST_AGENT_TOKEN: '' })).hosting).toBe(false);
     expect(availability(envWith({ HOST_AGENT_URL: 'http://10.0.0.9:9400', HOST_AGENT_TOKEN: 'agent-token' })).hosting).toBe(true);
   });
+
+  it('never reports domains available while the reseller adapter is a stub, even with env set', () => {
+    const flags = availability(envWith({
+      DOMAIN_RESELLER_URL: 'https://reseller-api.example.com',
+      DOMAIN_RESELLER_USERNAME: 'reseller@example.com',
+      DOMAIN_RESELLER_API_KEY: 'reseller-key',
+    }));
+    expect(flags.domains).toBe(false); // readiness is adapter-driven, not env-driven
+  });
 });

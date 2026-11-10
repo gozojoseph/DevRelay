@@ -18,6 +18,11 @@ export const hostedAppStatus = pgEnum('hosted_app_status', [
   'pending', 'building', 'live', 'paused_no_funds', 'paused_manual', 'failed', 'deleted',
 ]);
 export const appDeploymentStatus = pgEnum('app_deployment_status', ['queued', 'building', 'live', 'failed']);
+export const domainStatus = pgEnum('domain_status', [
+  'pending_register', 'active', 'expired', 'lapsed', 'failed',
+]);
+export const domainOrderAction = pgEnum('domain_order_action', ['register', 'renew']);
+export const domainOrderStatus = pgEnum('domain_order_status', ['pending', 'done', 'failed', 'refunded']);
 
 export const accounts = pgTable('accounts', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -311,6 +316,46 @@ export const appDeployments = pgTable('app_deployments', {
   buildLogTail: text('build_log_tail'), error: varchar('error', { length: 240 }),
   startedAt: time('started_at'), finishedAt: time('finished_at'), createdAt: created(),
 }, (t) => [index('app_deployments_app_idx').on(t.appId, t.createdAt)]);
+
+// In-platform domain reselling (docs/domains.md): customers buy domains from
+// DevRelay, which registers them through a reseller API (HostAfrica). Charged
+// from the GHS wallet in advance — like hosting, no unfunded domain ever
+// exists. Unlike hosting apps, domains CANNOT be paused: an unrenewed domain
+// expires and can be lost, so the renewal sweep warns early and expiry states
+// are recorded honestly (expired → lapsed after the registrar grace period).
+export const domains = pgTable('domains', {
+  id: uuid('id').primaryKey().defaultRandom(), accountId: uuid('account_id').notNull().references(() => accounts.id),
+  projectId: uuid('project_id').notNull().references(() => projects.id),
+  name: varchar('name', { length: 253 }).notNull(), // lowercase full domain, e.g. example.com
+  tld: varchar('tld', { length: 30 }).notNull(),
+  status: domainStatus('status').notNull().default('pending_register'),
+  autoRenew: boolean('auto_renew').notNull().default(true),
+  periodYears: integer('period_years').notNull().default(1),
+  registrant: jsonb('registrant').notNull(), // DomainRegistrant, docs/domains.md
+  nameservers: jsonb('nameservers'),
+  providerReference: varchar('provider_reference', { length: 120 }),
+  registeredAt: time('registered_at'), expiresAt: time('expires_at'),
+  // Lapse-risk warning level, 0-4 (thresholds 30/14/7/1 days before expiry).
+  lastWarningLevel: integer('last_warning_level').notNull().default(0),
+  lastError: varchar('last_error', { length: 240 }),
+  createdAt: created(), updatedAt: time('updated_at').defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex('domains_name_unique').on(t.name),
+  index('domains_account_idx').on(t.accountId), index('domains_renewal_idx').on(t.status, t.autoRenew, t.expiresAt),
+]);
+
+// One row per money-moving action against a domain (register or one renewal
+// period). The paired job (domain.register / domain.renew) carries this id.
+export const domainOrders = pgTable('domain_orders', {
+  id: uuid('id').primaryKey().defaultRandom(), domainId: uuid('domain_id').notNull().references(() => domains.id),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  action: domainOrderAction('action').notNull(), periodYears: integer('period_years').notNull().default(1),
+  amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+  status: domainOrderStatus('status').notNull().default('pending'),
+  providerReference: varchar('provider_reference', { length: 120 }),
+  error: varchar('error', { length: 240 }),
+  createdAt: created(), updatedAt: time('updated_at').defaultNow().notNull(),
+}, (t) => [index('domain_orders_domain_idx').on(t.domainId, t.createdAt)]);
 
 export const auditEvents = pgTable('audit_events', {
   id: uuid('id').primaryKey().defaultRandom(), actorUserId: uuid('actor_user_id').references(() => users.id),

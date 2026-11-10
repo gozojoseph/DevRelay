@@ -8,6 +8,8 @@ import { requireApiKey, requireScope } from '../middleware/auth.js';
 import { balance } from '../services/ledger.js';
 import { apiRateLimit, sendSms, sendSmsSchema, sendWhatsapp, sendWhatsappSchema } from '../services/messaging.js';
 import { hostingPlans, createHostingApp, redeployApp, stopHostingApp, startHostingApp, deleteHostingApp, getPlan } from '../services/hosting.js';
+import { DOMAIN_TLDS, DOMAIN_YEAR_DAYS, DOMAIN_GRACE_DAYS, domainRegistrantSchema, createDomainOrder,
+  lookupDomainAvailability, listDomainsForActor, getDomainForActor, setDomainAutoRenew, renewDomainNow } from '../services/domains.js';
 import { httpHostAgent } from '../providers/host-agent.js';
 import { ProviderFailure } from '../providers/types.js';
 
@@ -180,4 +182,55 @@ apiRouter.get('/apps/:id/logs', requireScope('hosting:read'), async (req, res) =
     if (error instanceof ProviderFailure) throw agentErrorToApi(error);
     throw error;
   }
+});
+
+// ── Domain reselling (docs/domains.md). Wallet is charged before any
+// registrar action; domains lapse when unrenewed, so warnings are explicit.
+const buyDomainSchema = z.object({
+  domain: z.string().trim().min(4).max(253),
+  autoRenew: z.boolean().default(true),
+  registrant: domainRegistrantSchema,
+});
+
+apiRouter.get('/domains/pricing', requireScope('domains:read'), async (req, res) => {
+  ok(req, res, { currency: 'GHS', periodDays: DOMAIN_YEAR_DAYS, graceDays: DOMAIN_GRACE_DAYS,
+    items: Object.values(DOMAIN_TLDS).map(({ tld, priceMinor }) => ({ tld, priceMinor, periodYears: 1 })) });
+});
+
+apiRouter.post('/domains/lookup', requireScope('domains:read'), async (req, res) => {
+  const body = z.object({ domain: z.string().trim().min(4).max(253) }).parse(req.body);
+  ok(req, res, await lookupDomainAvailability(body.domain));
+});
+
+apiRouter.post('/domains', requireScope('domains:write'), async (req, res) => {
+  const body = buyDomainSchema.parse(req.body);
+  const result = await createDomainOrder({ accountId: req.apiActor!.accountId,
+    projectId: req.apiActor!.projectId, domain: body.domain, registrant: body.registrant,
+    autoRenew: body.autoRenew });
+  ok(req, res, { id: result.domain.id, name: result.domain.name, tld: result.domain.tld,
+    status: result.domain.status, orderId: result.orderId }, 202);
+});
+
+apiRouter.get('/domains', requireScope('domains:read'), async (req, res) => {
+  ok(req, res, { items: await listDomainsForActor(req.apiActor!.accountId, req.apiActor!.projectId) });
+});
+
+apiRouter.get('/domains/:id', requireScope('domains:read'), async (req, res) => {
+  const id = z.uuid().parse(req.params.id);
+  ok(req, res, await getDomainForActor(req.apiActor!.accountId, req.apiActor!.projectId, id));
+});
+
+apiRouter.patch('/domains/:id', requireScope('domains:write'), async (req, res) => {
+  const id = z.uuid().parse(req.params.id);
+  const body = z.object({ autoRenew: z.boolean() }).parse(req.body);
+  await setDomainAutoRenew({ accountId: req.apiActor!.accountId, projectId: req.apiActor!.projectId,
+    domainId: id, autoRenew: body.autoRenew });
+  ok(req, res, { id, autoRenew: body.autoRenew });
+});
+
+apiRouter.post('/domains/:id/renew', requireScope('domains:write'), async (req, res) => {
+  const id = z.uuid().parse(req.params.id);
+  const result = await renewDomainNow({ accountId: req.apiActor!.accountId,
+    projectId: req.apiActor!.projectId, domainId: id });
+  ok(req, res, result, 202);
 });
