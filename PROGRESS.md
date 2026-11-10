@@ -51,7 +51,7 @@ Upgrades were verified gate-by-gate (typecheck, lint, build, db:check, 76 tests 
 | --- | --- |
 | `Dockerfile` | Multi-stage build → slim runtime (prod deps only, `USER node`, `HEALTHCHECK /healthz`); four entrypoints: API, worker, migrate, admin bootstrap |
 | `fly.toml` / `fly.worker.toml` | Two Fly apps (API + worker); `release_command` applies migrations before API machines boot |
-| `render.yaml` | Render blueprint (`envVarGroups`, API `preDeployCommand` migrates, worker as `type: worker`) |
+| `render.yaml` | Render blueprint (`envVarGroups` shared secrets, API web service `preDeployCommand` migrates). Updated 2026-11-10 for the Neon-backed deploy: added `APP_ORIGIN`/`PUBLIC_API_URL` (production boot gate), web plan `free`, worker intentionally commented out (free compute has no background workers; enable with `plan: starter` when providers go live). Runbook §2.4 has the full click-path. |
 | `.dockerignore` | Excludes `.env`/secrets, docs, tests, node_modules from the build context |
 | `docs/production-runbook.md` | Complete go-live guide: production boot gates, env vars, provider connections, deploy procedures per platform, go-live verification, operations/rollback |
 | `npm run start:migrate` | Compiled migration entrypoint (`node dist/server/db/migrate.js`) — runs with prod deps only |

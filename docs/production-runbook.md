@@ -108,10 +108,41 @@ with `FOR UPDATE SKIP LOCKED` + leases, so extra workers are safe.
 
 ### 2.4 Render.com quickstart
 
-Blueprint → connect the GitHub repo → Render generates the API + worker, then
-fill the `sync: false` values. `preDeployCommand` on the API applies
-migrations before the new release serves traffic; the worker has none so two
-processes never migrate concurrently.
+Blueprint → connect the GitHub repo → Render generates the API (web) from
+`render.yaml`, then fill the `sync: false` values in the dashboard.
+`preDeployCommand` on the API applies migrations before the new release serves
+traffic; idempotent, so re-running against an already-migrated branch is safe.
+The **worker service is intentionally commented out** in the blueprint —
+Render's free compute does not cover background workers, and there are no
+provider credentials yet. Uncomment it and set `plan: starter` ($7/mo) when
+you go live with sends.
+
+Creation click-path (2026-11-10):
+
+1. Render dashboard → **New → Blueprint** → pick repo `gozojoseph/DevRelay` (branch `main`).
+2. Review the detected service `devrelay-api` (Docker runtime, free plan).
+3. Fill every `sync: false` value from the local `.env` (never paste secrets into chat/GitHub):
+
+| Dashboard variable | Copy from | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | `.env` → `DATABASE_URL` | **pooled** Neon URL, branch `production` |
+| `APP_ORIGIN` / `PUBLIC_API_URL` | — | final URL, e.g. `https://devrelay-api.onrender.com` (single-origin app: same value twice) |
+| `ENCRYPTION_KEY` | `.env` → `ENCRYPTION_KEY` | **must match** the local value — MFA secrets are AES-256-GCM encrypted with it |
+| `SESSION_SECRET` | auto-generated (`generateValue`) | no need to paste |
+| `SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD` / `EMAIL_FROM` / `SUPPORT_EMAIL` | your e-mail provider | **required**: production refuses to boot without real SMTP (`server/config.ts` §production gate) |
+| provider keys (`PAYSTACK_*`, `AT_*`, `META_*`) | leave blank until live-verification phase | unset = feature honestly reports unavailable |
+
+4. Apply → first build → verify `https://…/healthz` (real `SELECT 1`) and `/api/public/status`.
+5. Sign in with the admin account and enroll MFA **on the Render origin**.
+
+Reality notes (Hobby/free tier): the service **spins down after ~15 min idle**
+(cold start up to ~1 min; first request after idle is slow), instances give
+750 h/month shared across free web services, 500 build-minutes/month, log
+retention 7 days, dashboards include SSH into the instance. Optional Neon
+platform env (`NEON_*`, incl. `DATABASE_URL_UNPOOLED`) is intentionally not in
+the blueprint: add via Service → Environment from the local `.env` if you want
+`/api/public/status` to keep reporting the Neon platform roll. Migrations stay
+run-by-preDeploy; `db:check` remains the CI gate.
 
 ### 2.5 VPS (alternative)
 

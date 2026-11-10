@@ -13,10 +13,21 @@ envVarGroups:
     envVars:
       - key: DATABASE_URL
         sync: false
+      # Single-origin app: both origins are the final service URL,
+      # e.g. https://devrelay-api.onrender.com (fill once the URL is known).
+      # NODE_ENV=production refuses to boot unless both are https.
+      - key: APP_ORIGIN
+        sync: false
+      - key: PUBLIC_API_URL
+        sync: false
       - key: SESSION_SECRET
         generateValue: true
+      # MUST match the ENCRYPTION_KEY in the local .env (same Neon database):
+      # MFA pending/active secrets are AES-256-GCM encrypted with it.
       - key: ENCRYPTION_KEY
         sync: false
+      # Production boot REQUIRES EMAIL_MODE=smtp with a real SMTP_HOST and
+      # EMAIL_FROM (server/config.ts readConfig gate); fill before first deploy.
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -53,11 +64,16 @@ envVarGroups:
         value: "false"
 
 services:
+  # Free web service (spins down after ~15 min idle; see runbook §2.4).
+  # NOTE: the worker service below is commented out — Render's free compute
+  # does not include background workers, and without provider credentials there
+  # are no jobs to process yet. Uncomment + set plan: starter ($7/mo) when you
+  # go live with Africa's Talking / WhatsApp sends.
   - type: web
     name: devrelay-api
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     healthCheckPath: /healthz
     preDeployCommand: node dist/server/db/migrate.js
     envVars:
@@ -67,15 +83,15 @@ services:
         value: "8080"
       - fromGroup: devrelay-production
 
-  - type: worker
-    name: devrelay-worker
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    dockerCommand: node dist/server/worker/index.js
-    plan: starter
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: "8080"
-      - fromGroup: devrelay-production
+  # - type: worker
+  #   name: devrelay-worker
+  #   runtime: docker
+  #   dockerfilePath: ./Dockerfile
+  #   dockerCommand: node dist/server/worker/index.js
+  #   plan: starter
+  #   envVars:
+  #     - key: NODE_ENV
+  #       value: production
+  #     - key: PORT
+  #       value: "8080"
+  #     - fromGroup: devrelay-production
