@@ -323,6 +323,14 @@ export function createAgent(deps) {
     if (!app.container || !app.currentImage) throw new Error('app container does not exist; deploy again');
     const r = await exec('docker', ['start', app.container], { timeoutMs: env.cmdTimeoutMs });
     if (r.code !== 0) throw new Error(clipHead(`docker start failed: ${r.stderr}`, MAX_ERROR));
+    // Same honesty rule as deploys: "live" only once the container actually
+    // answers HTTP, never on a successful `docker start` alone.
+    const answered = await probe(app.port, env.rollbackProbeTimeoutMs);
+    if (!answered.ok) {
+      app.status = 'failed';
+      save();
+      throw new Error(`container did not answer HTTP on 127.0.0.1:${app.port} within ${Math.round(env.rollbackProbeTimeoutMs / 1000)}s after start`);
+    }
     app.status = 'live';
   }
 

@@ -462,6 +462,19 @@ describe('app actions', () => {
     expect(start.json.error).toContain('deploy again');
   });
 
+  it('start of a container that never answers HTTP is a definite 409 and the app reads failed', async () => {
+    let answering = true;
+    const { agent } = makeAgent({ probeImpl: async () => ({ ok: answering }) });
+    await deployAndDrain(agent, validInput());
+    expect(agent.state.apps['app-0001-aaaa'].status).toBe('live');
+    answering = false; // the container goes silent while stopped
+    await agent.handleApiRequest({ method: 'POST', path: '/apps/app-0001-aaaa/stop', headers: authHeaders, body: undefined });
+    const start = await agent.handleApiRequest({ method: 'POST', path: '/apps/app-0001-aaaa/start', headers: authHeaders, body: undefined });
+    expect(start.status).toBe(409);
+    expect(start.json.error).toContain('did not answer HTTP');
+    expect(agent.state.apps['app-0001-aaaa'].status).toBe('failed');
+  });
+
   it('delete removes routing and the ask allow-list entry', async () => {
     const { agent, fs } = await liveAgent();
     expect(agent.handleAskRequest({ url: '/?domain=demo.apps.devrelay.africa' })).toBe(200);
