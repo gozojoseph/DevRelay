@@ -171,8 +171,10 @@ devrelay-agent` is the entire update procedure. Two files:
   HTTP servers, env parsing (refuses to start without a ≥24-char token),
   graceful SIGTERM.
 
-**On the box:** repo cloned to `/home/devrelay/devrelay-agent` (readable by
-user `devrelay` only), state persisted to
+**On the box:** the repo is cloned to `/home/devrelay/DevRelay` (the agent
+runs from that checkout; `git pull` there is the update), state and build
+dirs live under `/home/devrelay/devrelay-agent/` (the `DEVRELAY_AGENT_DATA_DIR`
+default) — state persists to
 `/home/devrelay/devrelay-agent/state.json` (0600; `repoToken` is never
 written to disk — redacted at persist time; an interrupted `building`
 deployment is honestly failed at boot with "agent restarted while this
