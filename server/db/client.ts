@@ -10,6 +10,14 @@ export const pool = new pg.Pool({
   // half-open socket surfaces as a request-time 500 on first reuse.
   keepAlive: true, keepAliveInitialDelayMillis: 10000,
 });
+// Neon suspends idle computes and intermediaries can RST sockets, so a pooled
+// client can die outside any query. pg forwards that to the pool, and without
+// a listener the process exits with an unhandled 'error' event (seen live:
+// local worker crashed on ECONNRESET while idle). The pool drops the dead
+// client; the next query opens a fresh one.
+pool.on('error', (err) => {
+  console.error(`[db] pooled client error (pool recovers on next query): ${err.message}`);
+});
 export const db = drizzle(pool, { schema });
 export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export async function closeDb() { await pool.end(); }
