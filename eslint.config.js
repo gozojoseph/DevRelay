@@ -7,4 +7,10 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   { files: ['**/*.{ts,tsx}'], rules: { '@typescript-eslint/no-explicit-any': 'warn',
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }] } },
+  // The host agent is plain ESM JS with zero runtime deps (it must run on the
+  // VPS with no build step), so give its globals explicitly.
+  { files: ['agent/**/*.mjs'], languageOptions: { globals: {
+    process: 'readonly', console: 'readonly', Buffer: 'readonly', URL: 'readonly',
+    setTimeout: 'readonly', clearTimeout: 'readonly', setInterval: 'readonly', clearInterval: 'readonly',
+  } } },
 );

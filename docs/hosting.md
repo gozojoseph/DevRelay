@@ -96,7 +96,7 @@ customer's build cannot starve other apps.
 | H0b | Provision: hardening, rootless Docker, Caddy + wildcard DNS + on-demand TLS, gVisor check; hello-world serves HTTPS | ✅ 2026-11-11 — done on Debian 12, see "The box" below; `https://hello.apps.devrelay.africa` serves HTTPS live from the box and from outside |
 | H0c | Substrate decision (Coolify/Dokploy API vs custom agent) | ✅ **custom agent** — decided on box facts: 1 GB RAM cannot spare Coolify/Dokploy's overhead, and the agent contract (`Host agent API` above) is already test-pinned; the agent is the only exposed service, exactly as the security posture demands |
 | H1 | Schema, API, plans, billing, jobs, renewal sweep — **this commit** (136 tests) | ✅ done |
-| H2 | Deploy pipeline end-to-end against the real agent | next |
+| H2 | Deploy pipeline end-to-end against the real agent | **in progress** — agent core (`agent/core.mjs` + `agent/index.mjs`, plain ESM, zero runtime deps) written and pinned by 37 contract tests in `tests/agent.test.ts` (idempotency, failed-build-never-touches-live, rollback on failed probe, fail-closed ask, honest failure reporting); deployment to the box + live e2e incl. negative paths = the remaining work |
 | H3 | Hardening + 1–2 vetted beta customers | after H2 |
 
 ## The box (H0b, provisioned 2026-11-11)
@@ -154,3 +154,57 @@ this allow-list, answering from the `hosted_apps` table.
 127.0.0.1:8080, Caddy reverse-proxying — `https://hello.apps.devrelay.africa`
 returns 200 from the box AND from an outside network; unapproved names
 fail at the TLS handshake (fail-closed).
+
+## Host agent operations (H2)
+
+The agent is **plain ESM JavaScript with zero runtime dependencies** so it
+runs on the 1 GB box with no build step: `git pull && systemctl restart
+devrelay-agent` is the entire update procedure. Two files:
+
+- `agent/core.mjs` — the whole state machine (validation, idempotent
+  deployments, single-slot queue, build pipeline with rollback, ask
+  endpoint, Caddyfile generator, boot reconcile). Every side effect goes
+  through injected `exec` / `fs` / `probe`, which is what makes it
+  contract-testable without Docker.
+- `agent/index.mjs` — the real wiring: `child_process.spawn` exec with
+  SIGKILL timeout, HTTP probe with retry-until-deadline, the API and ask
+  HTTP servers, env parsing (refuses to start without a ≥24-char token),
+  graceful SIGTERM.
+
+**On the box:** repo cloned to `/home/devrelay/devrelay-agent` (readable by
+user `devrelay` only), state persisted to
+`/home/devrelay/devrelay-agent/state.json` (0600; `repoToken` is never
+written to disk — redacted at persist time; an interrupted `building`
+deployment is honestly failed at boot with "agent restarted while this
+deployment was building"). The Caddyfile the agent regenerates lives at
+`/var/lib/devrelay/Caddyfile` (dir owned by `devrelay`; the caddy systemd
+unit's ExecStart is repointed there from `/etc/caddy/Caddyfile`).
+
+**Config** via `/etc/devrelay/agent.env` (root-owned, 0600), loaded by the
+systemd unit; `DOCKER_HOST=unix:///run/user/1000/docker.sock` targets the
+rootless daemon. Keys (all optional except the token — see
+`agent/index.mjs`): `DEVRELAY_AGENT_TOKEN` (required, ≥24 chars),
+`DEVRELAY_AGENT_API_PORT` 8787, `DEVRELAY_AGENT_ASK_PORT` 5577,
+`DEVRELAY_AGENT_BASE_DOMAIN` apps.devrelay.africa,
+`DEVRELAY_AGENT_AGENT_HOST` agent.apps.devrelay.africa,
+`DEVRELAY_AGENT_STATIC_ROUTES` `hello.apps.devrelay.africa=127.0.0.1:8080`,
+`DEVRELAY_AGENT_CAPACITY_MEMORY_MB` 768,
+`DEVRELAY_AGENT_CADDY_CONFIG` /var/lib/devrelay/Caddyfile,
+`DEVRELAY_AGENT_ALLOW_FILE_CLONES` (off by default — `file://` clone URLs
+are refused unless explicitly enabled for local proof runs).
+
+**Ports:** the API listens on 127.0.0.1:8787 and is exposed as
+`https://agent.apps.devrelay.africa` through Caddy; the ask endpoint stays
+loopback-only on 127.0.0.1:5577 (Caddy calls it locally); customer app
+containers publish to 127.0.0.1:10000–10999 only. Nothing but Caddy
+listens on a public interface.
+
+**Before first start:** the python `devrelay-ask.service` must be disabled
+(`systemctl disable --now devrelay-ask`) or the agent's ask server cannot
+bind 5577 and the unit will crash-loop. The python file-based allow-list is
+obsolete — the agent answers from its own state.
+
+**Render side:** `HOST_AGENT_URL=https://agent.apps.devrelay.africa` and
+`HOST_AGENT_TOKEN=<the agent token>` on both the API and worker services.
+The token is generated on the box (`openssl rand -hex 32`), written to the
+env file, and handed to Render out-of-band — never through chat.
