@@ -96,7 +96,7 @@ customer's build cannot starve other apps.
 | H0b | Provision: hardening, rootless Docker, Caddy + wildcard DNS + on-demand TLS, gVisor check; hello-world serves HTTPS | ✅ 2026-11-11 — done on Debian 12, see "The box" below; `https://hello.apps.devrelay.africa` serves HTTPS live from the box and from outside |
 | H0c | Substrate decision (Coolify/Dokploy API vs custom agent) | ✅ **custom agent** — decided on box facts: 1 GB RAM cannot spare Coolify/Dokploy's overhead, and the agent contract (`Host agent API` above) is already test-pinned; the agent is the only exposed service, exactly as the security posture demands |
 | H1 | Schema, API, plans, billing, jobs, renewal sweep — **this commit** (136 tests) | ✅ done |
-| H2 | Deploy pipeline end-to-end against the real agent | **in progress** — agent core (`agent/core.mjs` + `agent/index.mjs`, plain ESM, zero runtime deps) written and pinned by 37 contract tests in `tests/agent.test.ts` (idempotency, failed-build-never-touches-live, rollback on failed probe, fail-closed ask, honest failure reporting); deployment to the box + live e2e incl. negative paths = the remaining work |
+| H2 | Deploy pipeline end-to-end against the real agent | ✅ **agent live on the box (2026-11-11)** — core + entrypoint pinned by 38 contract tests; deployed to the VPS (Node 22, `devrelay-agent.service`, python ask disabled, Caddy repointed to the agent-managed Caddyfile); **live e2e passed end to end**: node-builder deploy from a Git repo → `live` in ~27 s → `https://e2e-demo.apps.devrelay.africa` 200 from the box AND from outside, container inspected (`read-only` rootfs, 256 MB cap, pids 256, loopback-only publish, restart=unless-stopped), idempotent re-POST, honest negatives on the real agent (no-start-script → definite failed, immutable slug 409, start-without-container 409, file:// refused 400 both with the flag on-but-unset and off, ask gate fail-closed), stop/start/logs/delete round-trip, state.json 0600 with `repoToken` never persisted. Two real bugs caught by the e2e and fixed: the queue loop orphaned work arriving between passes (hangs callers — fixed + gate-tested), and `docker start` alone reported live (now probes first; 409 + `failed` on silence). Remaining for H2 closure: Render env wiring (`HOST_AGENT_URL`/`HOST_AGENT_TOKEN`) and the DevRelay-side deploy job proof against the live agent |
 | H3 | Hardening + 1–2 vetted beta customers | after H2 |
 
 ## The box (H0b, provisioned 2026-11-11)
@@ -194,6 +194,26 @@ rootless daemon. Keys (all optional except the token — see
 `DEVRELAY_AGENT_CADDY_CONFIG` /var/lib/devrelay/Caddyfile,
 `DEVRELAY_AGENT_ALLOW_FILE_CLONES` (off by default — `file://` clone URLs
 are refused unless explicitly enabled for local proof runs).
+
+**The unit as deployed** (`/etc/systemd/system/devrelay-agent.service`,
+summary): `User=devrelay`, `EnvironmentFile=/etc/devrelay/agent.env`,
+`Environment=DOCKER_CONFIG=/home/devrelay/devrelay-agent/.docker`
+(**gotcha the live e2e caught**: `ProtectHome=read-only` makes `~/.docker`
+unwritable and the docker CLI dies with "mkdir
+/home/devrelay/.docker/buildx: read-only file system" — pointing
+`DOCKER_CONFIG` into the writable data dir fixes it without weakening the
+sandbox), `ExecStartPre` waits for the rootless docker.sock,
+`ProtectSystem=full`, `ProtectHome=read-only`,
+`ReadWritePaths=-/home/devrelay/devrelay-agent`, `NoNewPrivileges`,
+`PrivateTmp`, `Restart=always`.
+
+**Ports:** the API listens on 127.0.0.1:8787 and is exposed as
+`https://agent.apps.devrelay.africa` through Caddy; the ask endpoint stays
+loopback-only on 127.0.0.1:5577 (Caddy calls it locally); customer app
+containers publish to 127.0.0.1:10000–10999 only. Nothing but Caddy
+listens on a public interface. Note: once the agent host has a
+certificate, internet scanners find it via CT logs within minutes — every
+sensitive route answers 401 without the bearer token (observed live).
 
 **Ports:** the API listens on 127.0.0.1:8787 and is exposed as
 `https://agent.apps.devrelay.africa` through Caddy; the ask endpoint stays
