@@ -40,6 +40,28 @@ function fallbackUrl(slug: string) {
   return domain ? `https://${slug}.${domain}` : undefined;
 }
 
+/**
+ * Deployment failures arrive either as free human text from the agent (git/
+ * docker/npm build output) or as a bare internal code from the worker itself
+ * (e.g. HOSTING_NOT_CONFIGURED). Customers must never be shown a bare
+ * ALL-CAPS code alone: codes are turned into a short honest sentence that
+ * still names the code for support. Human text passes through untouched.
+ */
+const DEPLOYMENT_FAILURE_HINTS: Record<string, string> = {
+  HOSTING_NOT_CONFIGURED: 'The deployment never started: the platform could not reach its hosting agent (platform configuration fault). Please retry in a few minutes.',
+  HOST_AGENT_REJECTED: 'The hosting agent refused the deployment request. Please retry; if it repeats, contact support.',
+  BUILD_FAILED: 'The build failed and the agent reported no detailed error.',
+};
+
+const BARE_CODE_RE = /^[A-Z][A-Z0-9_]{2,}$/;
+
+export function humanizeDeploymentError(error: string): string {
+  if (!BARE_CODE_RE.test(error)) return error;
+  const hint = DEPLOYMENT_FAILURE_HINTS[error];
+  return hint ? `${hint} (code ${error})`
+    : `The deployment failed with error code ${error}. Please retry; if it repeats, contact support.`;
+}
+
 async function chargePlan(tx: DbTransaction, params: { accountId: string; appId: string; plan: HostingPlan; expiresAt: Date }) {
   const reference = `hosting:${params.appId}:${params.expiresAt.toISOString().slice(0, 10)}`;
   try {
@@ -191,11 +213,12 @@ export async function processAppDeploy(deploymentId: string) {
 }
 
 async function failDeployment(deploymentId: string, app: typeof hostedApps.$inferSelect, error: string, logTail?: string) {
-  await db.update(appDeployments).set({ status: 'failed', error: error.slice(0, 240),
+  const message = humanizeDeploymentError(error).slice(0, 240);
+  await db.update(appDeployments).set({ status: 'failed', error: message,
     finishedAt: new Date(), buildLogTail: logTail ?? null }).where(eq(appDeployments.id, deploymentId));
   // A failed redeploy must not take the previously live container down.
   if (app.status !== 'live') {
-    await db.update(hostedApps).set({ status: 'failed', lastError: error.slice(0, 240), updatedAt: new Date() })
+    await db.update(hostedApps).set({ status: 'failed', lastError: message, updatedAt: new Date() })
       .where(eq(hostedApps.id, app.id));
   }
   return { done: true };

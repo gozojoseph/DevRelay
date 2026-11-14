@@ -158,6 +158,32 @@ describe('processAppDeploy', () => {
     const [deployment] = await db.select().from(appDeployments).where(eq(appDeployments.id, deploymentId));
     expect(deployment?.status).toBe('building'); // still honestly in flight
   });
+
+  it('stores bare platform codes as a human sentence that keeps the code', async () => {
+    const db = getTestDb();
+    mocks.upsertDeployment.mockRejectedValue(new (await import('../server/providers/types.js')).ProviderFailure('rejected', 'HOSTING_NOT_CONFIGURED'));
+    const { app, deploymentId } = await seedApp(db);
+    await processAppDeploy(deploymentId);
+    const [after] = await db.select().from(hostedApps).where(eq(hostedApps.id, app.id));
+    expect(after?.status).toBe('failed');
+    expect(after?.lastError).toContain('HOSTING_NOT_CONFIGURED');
+    expect(after?.lastError).toContain('hosting agent');
+    expect(after?.lastError).not.toBe('HOSTING_NOT_CONFIGURED'); // never a bare code
+    const [deployment] = await db.select().from(appDeployments).where(eq(appDeployments.id, deploymentId));
+    expect(deployment?.error).toBe(after?.lastError);
+    expect(deployment?.status).toBe('failed');
+  });
+
+  it('maps unknown bare codes to an honest generic sentence', async () => {
+    const db = getTestDb();
+    mocks.upsertDeployment.mockResolvedValue({ status: 'failed', error: 'FUTURE_AGENT_CODE' });
+    const { app, deploymentId } = await seedApp(db);
+    await processAppDeploy(deploymentId);
+    const [after] = await db.select().from(hostedApps).where(eq(hostedApps.id, app.id));
+    expect(after?.status).toBe('failed');
+    expect(after?.lastError).toContain('FUTURE_AGENT_CODE');
+    expect(after?.lastError).not.toBe('FUTURE_AGENT_CODE');
+  });
 });
 
 describe('processAppAction', () => {

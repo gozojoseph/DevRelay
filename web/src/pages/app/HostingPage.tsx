@@ -133,7 +133,7 @@ export function HostingPage() {
                         <p className="mt-1 flex items-center gap-1 text-xs text-muted">
                           <Clock className="h-3 w-3" /> Plan renews {formatDay(app.planExpiresAt)} ({relativeTime(app.planExpiresAt)})
                         </p>
-                        {app.lastError ? <p className="mt-1 text-xs font-medium text-rose-600 dark:text-rose-400">{app.lastError.replaceAll('_', ' ')}</p> : null}
+                        {app.lastError ? <p className="mt-1 text-xs font-medium text-rose-600 dark:text-rose-400">{app.lastError}</p> : null}
                       </div>
                       <div className="flex shrink-0 flex-wrap gap-1.5">
                         <Button size="sm" variant="secondary" loading={busyId === app.id} onClick={() => void action(app.id, 'deploy')} disabled={!available}><Rocket className="h-3.5 w-3.5" /> Deploy</Button>
