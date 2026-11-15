@@ -221,6 +221,9 @@ describe('deploy pipeline', () => {
     expect(run!.args).toContain('--read-only');
     expect(run!.args).toContain('256m');          // --memory value
     expect(run!.args).toContain('--pids-limit');
+    expect(run!.args).toContain('--cap-drop');    // customer code runs with zero capabilities
+    expect(run!.args).toContain('--security-opt');
+    expect(run!.args).toContain('no-new-privileges');
     expect(run!.args).toContain('127.0.0.1:10000:3000'); // loopback publish, EXPOSE-derived port
 
     const caddy = fs.read('/data/Caddyfile') ?? '';

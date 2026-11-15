@@ -596,6 +596,7 @@ export function createAgent(deps) {
   function runArgs(container, image, port, containerPort, memoryMb, cpuMilli) {
     return ['run', '-d', '--name', container, '--restart', 'unless-stopped',
       '--read-only', '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m',
+      '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
       '-p', `127.0.0.1:${port}:${containerPort}`,
       '--env', `PORT=${containerPort}`,
       '--memory', `${memoryMb}m`, '--memory-swap', `${memoryMb}m`,
