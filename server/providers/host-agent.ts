@@ -28,6 +28,9 @@ export interface DeployInput {
   repoUrl: string; repoToken?: string; branch: string;
   builder: 'dockerfile' | 'node'; plan: string;
   memoryMb: number; cpuMilli: number;
+  /** Decrypted per-app environment variables; values travel only over the
+   * authenticated agent channel and are never persisted agent-side. */
+  env?: Record<string, string>;
 }
 
 export interface HostAgentClient {

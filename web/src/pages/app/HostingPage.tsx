@@ -121,7 +121,7 @@ export function HostingPage() {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold text-ink">{app.name}</p>
+                          <Link to={`/app/hosting/${app.id}`} className="link text-sm font-semibold text-ink">{app.name}</Link>
                           <StatusBadge status={app.status} />
                           <Badge tone="neutral">{app.plan}</Badge>
                           <Badge tone="neutral">{app.builder}</Badge>

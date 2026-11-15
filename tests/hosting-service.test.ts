@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { closeTestDb, ensureTestDb, getTestDb, resetTestDb, type TestDb } from './helpers/db.js';
 import { seedAccount, seedLedgerWallets, seedProject } from './helpers/seed.js';
 // Config must see the agent settings before the first import of the service.
@@ -31,8 +31,8 @@ vi.mock('../server/db/client.js', async () => {
   return { pool: {}, closeDb: async () => {}, db: harness.getTestDb() };
 });
 
-import { appDeployments, hostedApps, jobs, ledgerAccounts, ledgerTransactions } from '../server/db/schema.js';
-import { createHostingApp, processAppAction, processAppDeploy, renewDueHostingApps } from '../server/services/hosting.js';
+import { appDeployments, hostedAppEnvVars, hostedApps, jobs, ledgerAccounts, ledgerTransactions } from '../server/db/schema.js';
+import { createHostingApp, deleteAppEnvVar, listAppEnvVars, listAppEvents, processAppAction, processAppDeploy, renewDueHostingApps, setAppEnvVar } from '../server/services/hosting.js';
 
 beforeAll(ensureTestDb, 120_000);
 beforeEach(() => {
@@ -274,5 +274,170 @@ describe('renewDueHostingApps', () => {
     const balanceAfterFirst = await wallet(db, account.id, 'customer_available');
     await renewDueHostingApps();
     expect(await wallet(db, account.id, 'customer_available')).toBe(balanceAfterFirst);
+  });
+});
+
+describe('app event feed', () => {
+  async function seedLiveApp(db: TestDb) {
+    const { account, project } = await seedWorld(db);
+    const { app, deploymentId } = await createHostingApp({ accountId: account.id, projectId: project.id, ...createInput });
+    mocks.upsertDeployment.mockResolvedValue({ status: 'live', url: 'https://x.example.test', containerRef: 'c-1' });
+    // vi.fn implementations persist across tests in a file; make the agent
+    // mocks explicitly happy here regardless of what earlier tests set.
+    mocks.stopApp.mockResolvedValue(undefined);
+    mocks.startApp.mockResolvedValue(undefined);
+    mocks.deleteApp.mockResolvedValue(undefined);
+    await processAppDeploy(deploymentId);
+    const [live] = await db.select().from(hostedApps).where(eq(hostedApps.id, app.id));
+    return { account, app: live!, events: () => listAppEvents(app.id) };
+  }
+
+  it('records app_created and deploy_queued at create time', async () => {
+    const db = getTestDb();
+    const { account, project } = await seedWorld(db);
+    const { app, deploymentId } = await createHostingApp({ accountId: account.id, projectId: project.id, ...createInput });
+    const events = await listAppEvents(app.id);
+    expect(new Set(events.map(e => e.kind))).toEqual(new Set(['app_created', 'deploy_queued']));
+    const queued = events.find(e => e.kind === 'deploy_queued')!;
+    expect(queued.deploymentId).toBe(deploymentId);
+    expect(queued.message).toContain('main');
+  });
+
+  it('records deploy_live with the URL when the deployment succeeds', async () => {
+    const db = getTestDb();
+    const { app, events } = await seedLiveApp(db);
+    const live = (await events()).find(e => e.kind === 'deploy_live')!;
+    expect(live).toBeTruthy();
+    expect(live.message).toContain('https://x.example.test');
+    expect(live.deploymentId).toBe(app.currentDeploymentId);
+  });
+
+  it('records deploy_failed with the humanized message, never a bare code', async () => {
+    const db = getTestDb();
+    const { account, project } = await seedWorld(db);
+    const { app, deploymentId } = await createHostingApp({ accountId: account.id, projectId: project.id, ...createInput });
+    mocks.upsertDeployment.mockResolvedValue({ status: 'failed', error: 'HOST_AGENT_TIMEOUT' });
+    await processAppDeploy(deploymentId);
+    const failed = (await listAppEvents(app.id)).find(e => e.kind === 'deploy_failed')!;
+    expect(failed).toBeTruthy();
+    expect(failed.message).toContain('HOST_AGENT_TIMEOUT');
+    expect(failed.message).not.toBe('HOST_AGENT_TIMEOUT'); // the event carries the human sentence
+    expect(failed.deploymentId).toBe(deploymentId);
+  });
+
+  it('records stop, start and delete actions', async () => {
+    const db = getTestDb();
+    const { app, events } = await seedLiveApp(db);
+    await processAppAction(app.id, 'stop');
+    await processAppAction(app.id, 'start');
+    await processAppAction(app.id, 'delete');
+    const kinds = (await events()).map(e => e.kind);
+    for (const kind of ['app_stopped', 'app_started', 'app_deleted']) expect(kinds).toContain(kind);
+  });
+
+  it('records renewal, resume and honest pause events from the sweep', async () => {
+    const db = getTestDb();
+    const { account } = await seedWorld(db);
+    const { app, deploymentId } = await createHostingApp({ accountId: account.id, projectId: (await seedProject(db, account.id)).id, ...createInput });
+    mocks.upsertDeployment.mockResolvedValue({ status: 'live', url: 'https://x.example.test' });
+    await processAppDeploy(deploymentId);
+    await db.update(hostedApps).set({ status: 'paused_no_funds', planExpiresAt: new Date(Date.now() + 2 * 86_400_000) })
+      .where(eq(hostedApps.id, app.id));
+    await renewDueHostingApps();
+    let kinds = (await listAppEvents(app.id)).map(e => e.kind);
+    for (const kind of ['plan_renewed', 'plan_resumed']) expect(kinds).toContain(kind);
+
+    // A live app whose wallet runs dry pauses with an honest event.
+    const { app: app2, deploymentId: deployment2 } = await createHostingApp({ accountId: account.id, projectId: (await seedProject(db, account.id)).id, ...createInput });
+    await processAppDeploy(deployment2);
+    await db.update(hostedApps).set({ planExpiresAt: new Date(Date.now() + 2 * 86_400_000) }).where(eq(hostedApps.id, app2.id));
+    await db.update(ledgerAccounts).set({ balanceMinor: 0 }).where(eq(ledgerAccounts.accountId, account.id));
+    await renewDueHostingApps();
+    kinds = (await listAppEvents(app2.id)).map(e => e.kind);
+    expect(kinds).toContain('plan_paused');
+  });
+});
+
+describe('app environment variables', () => {
+  async function seedApp(db: TestDb) {
+    const { account, project } = await seedWorld(db);
+    const { app } = await createHostingApp({ accountId: account.id, projectId: project.id, ...createInput });
+    return { account, app };
+  }
+
+  it('encrypts at rest and lists only key names and timestamps', async () => {
+    const db = getTestDb();
+    const { app } = await seedApp(db);
+    await setAppEnvVar({ app, key: 'API_KEY', value: 'super-secret-value' });
+    const [row] = await db.select().from(hostedAppEnvVars)
+      .where(and(eq(hostedAppEnvVars.appId, app.id), eq(hostedAppEnvVars.key, 'API_KEY')));
+    expect(row).toBeTruthy();
+    expect(row!.valueEncrypted).not.toContain('super-secret-value');
+    expect(row!.valueEncrypted.split('.')).toHaveLength(3); // iv.tag.payload
+
+    const listed = await listAppEnvVars(app.id);
+    expect(listed).toEqual([{ key: 'API_KEY', updatedAt: expect.anything() }]); // no value, ever
+  });
+
+  it('passes decrypted values to the agent on the next deploy and records env_changed', async () => {
+    const db = getTestDb();
+    const { account, project } = await seedWorld(db);
+    const { app, deploymentId } = await createHostingApp({ accountId: account.id, projectId: project.id, ...createInput });
+    mocks.upsertDeployment.mockResolvedValue({ status: 'live', url: 'https://x.example.test' });
+
+    // No env yet: the deploy input carries no env values.
+    await processAppDeploy(deploymentId);
+    let call = mocks.upsertDeployment.mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(call.env).toBeUndefined();
+
+    await setAppEnvVar({ app, key: 'API_KEY', value: 'super-secret-value' });
+    await setAppEnvVar({ app, key: 'NASTY', value: 'has=equals+and spaces' });
+    const [redeployment] = await db.insert(appDeployments).values({ appId: app.id, ref: 'main' }).returning();
+    await processAppDeploy(redeployment!.id);
+    call = mocks.upsertDeployment.mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(call.env).toEqual({ API_KEY: 'super-secret-value', NASTY: 'has=equals+and spaces' });
+
+    const messages = (await listAppEvents(app.id)).filter(e => e.kind === 'env_changed').map(e => e.message);
+    expect(messages.some(m => m.includes('API_KEY') && m.includes('added'))).toBe(true);
+    expect(messages.some(m => m.includes('NASTY') && m.includes('added'))).toBe(true);
+  });
+
+  it('updates an existing key in place and says updated', async () => {
+    const db = getTestDb();
+    const { app } = await seedApp(db);
+    await setAppEnvVar({ app, key: 'API_KEY', value: 'first' });
+    await setAppEnvVar({ app, key: 'API_KEY', value: 'second' });
+    const rows = await db.select().from(hostedAppEnvVars).where(eq(hostedAppEnvVars.appId, app.id));
+    expect(rows).toHaveLength(1);
+    const messages = (await listAppEvents(app.id)).filter(e => e.kind === 'env_changed').map(e => e.message);
+    expect(messages.filter(m => m.includes('API_KEY')).some(m => m.includes('updated'))).toBe(true);
+  });
+
+  it('rejects bad keys with INVALID_ENV_KEY and the 51st variable with ENV_LIMIT', async () => {
+    const db = getTestDb();
+    const { app } = await seedApp(db);
+    await expect(setAppEnvVar({ app, key: '9BAD-KEY', value: 'x' }))
+      .rejects.toMatchObject({ status: 400, code: 'INVALID_ENV_KEY' });
+
+    await db.insert(hostedAppEnvVars).values(Array.from({ length: 50 }, (_, i) => ({
+      appId: app.id, key: `V_${i}`, valueEncrypted: 'x',
+    })));
+    await expect(setAppEnvVar({ app, key: 'ONE_TOO_MANY', value: 'x' }))
+      .rejects.toMatchObject({ status: 409, code: 'ENV_LIMIT' });
+    // Updating one of the existing 50 is still allowed — the limit caps new keys.
+    await setAppEnvVar({ app, key: 'V_0', value: 'rotated' });
+  });
+
+  it('removes a variable with an event, and deleting a missing key is a silent no-op', async () => {
+    const db = getTestDb();
+    const { app } = await seedApp(db);
+    await setAppEnvVar({ app, key: 'API_KEY', value: 'x' });
+    await deleteAppEnvVar({ app, key: 'API_KEY' });
+    expect(await listAppEnvVars(app.id)).toHaveLength(0);
+    expect((await listAppEvents(app.id)).some(e => e.kind === 'env_changed' && e.message.includes('removed'))).toBe(true);
+
+    const before = await listAppEvents(app.id);
+    await deleteAppEnvVar({ app, key: 'NEVER_EXISTED' });
+    expect(await listAppEvents(app.id)).toHaveLength(before.length); // no phantom event
   });
 });

@@ -75,9 +75,23 @@ export function validateDeployInput(body, env) {
   if (body.repoToken !== undefined && (typeof body.repoToken !== 'string' || body.repoToken.length > 500)) {
     return { ok: false, error: 'invalid repoToken' };
   }
+  if (body.env !== undefined && body.env !== null) {
+    if (typeof body.env !== 'object' || Array.isArray(body.env)) return { ok: false, error: 'env must be an object' };
+    const keys = Object.keys(body.env);
+    if (keys.length > 50) return { ok: false, error: 'env supports up to 50 variables' };
+    let total = 0;
+    for (const key of keys) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || key.length > 120) return { ok: false, error: `invalid env key: ${key}` };
+      const value = body.env[key];
+      if (typeof value !== 'string' || value.length > 4000) return { ok: false, error: `invalid env value for ${key}` };
+      total += key.length + value.length;
+    }
+    if (total > 32768) return { ok: false, error: 'env total size exceeds 32 KiB' };
+  }
   return { ok: true, value: {
     deploymentId: body.deploymentId, appId: body.appId, slug: body.slug, name: body.name,
     repoUrl: body.repoUrl, repoToken: typeof body.repoToken === 'string' ? body.repoToken : undefined,
+    env: body.env && typeof body.env === 'object' && !Array.isArray(body.env) ? body.env : undefined,
     branch: body.branch, builder: body.builder, plan: body.plan, memoryMb: body.memoryMb, cpuMilli: body.cpuMilli,
   } };
 }
@@ -171,10 +185,18 @@ export function createAgent(deps) {
   const persist = () => {
     const tmp = `${env.statePath}.tmp`;
     fs.mkdirSync(env.dataDir, { recursive: true });
-    // repoToken never touches disk: the in-memory copy is enough for the one
-    // build it belongs to, and interrupted builds are failed at boot anyway.
-    const json = JSON.stringify(state, (key, value) =>
-      (key === 'repoToken' && typeof value === 'string' && value) ? '[redacted]' : value);
+    // repoToken and env values never touch disk: the in-memory copies are
+    // enough for the one build they belong to, and interrupted builds are
+    // failed at boot anyway (the running container keeps its baked-in env).
+    const json = JSON.stringify(state, (key, value) => {
+      if (key === 'repoToken' && typeof value === 'string' && value) return '[redacted]';
+      if (key === 'env' && value && typeof value === 'object' && !Array.isArray(value)) {
+        const masked = {};
+        for (const k of Object.keys(value)) masked[k] = '[redacted]';
+        return masked;
+      }
+      return value;
+    });
     fs.writeFileSync(tmp, json);
     try { fs.chmodSync?.(tmp, 0o600); } catch { /* best effort (test fakes lack chmod) */ }
     fs.renameSync(tmp, env.statePath);
@@ -525,12 +547,12 @@ export function createAgent(deps) {
     const previousImage = app.currentImage;
     const hadContainer = Boolean(app.container);
     if (hadContainer) await exec('docker', ['rm', '-f', app.container], { timeoutMs: env.cmdTimeoutMs });
-    r = await exec('docker', runArgs(app.container, image, app.port, containerPort, app.memoryMb, app.cpuMilli),
+    r = await exec('docker', runArgs(app.container, image, app.port, containerPort, app.memoryMb, app.cpuMilli, d.input.env),
       { timeoutMs: env.cmdTimeoutMs, cwd: env.dataDir });
     capture(d, `${r.stdout}\n${r.stderr}`);
     if (r.code !== 0) {
       if (previousImage && hadContainer) {
-        await exec('docker', runArgs(app.container, previousImage, app.port, containerPort, app.memoryMb, app.cpuMilli),
+        await exec('docker', runArgs(app.container, previousImage, app.port, containerPort, app.memoryMb, app.cpuMilli, d.input.env),
           { timeoutMs: env.cmdTimeoutMs });
         app.currentImage = previousImage;
         app.status = 'live';
@@ -550,7 +572,7 @@ export function createAgent(deps) {
       const logs = await performLogs(app);
       await exec('docker', ['rm', '-f', app.container], { timeoutMs: env.cmdTimeoutMs });
       if (previousImage && hadContainer) {
-        const back = await exec('docker', runArgs(app.container, previousImage, app.port, containerPort, app.memoryMb, app.cpuMilli),
+        const back = await exec('docker', runArgs(app.container, previousImage, app.port, containerPort, app.memoryMb, app.cpuMilli, d.input.env),
           { timeoutMs: env.cmdTimeoutMs });
         const oldAnswered = back.code === 0 ? await probe(app.port, env.rollbackProbeTimeoutMs) : { ok: false };
         app.currentImage = previousImage;
@@ -593,15 +615,17 @@ export function createAgent(deps) {
     }
   }
 
-  function runArgs(container, image, port, containerPort, memoryMb, cpuMilli) {
-    return ['run', '-d', '--name', container, '--restart', 'unless-stopped',
+  function runArgs(container, image, port, containerPort, memoryMb, cpuMilli, envVars) {
+    const args = ['run', '-d', '--name', container, '--restart', 'unless-stopped',
       '--read-only', '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m',
       '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
       '-p', `127.0.0.1:${port}:${containerPort}`,
       '--env', `PORT=${containerPort}`,
       '--memory', `${memoryMb}m`, '--memory-swap', `${memoryMb}m`,
-      '--cpus', (cpuMilli / 1000).toFixed(3), '--pids-limit', '256',
-      image];
+      '--cpus', (cpuMilli / 1000).toFixed(3), '--pids-limit', '256'];
+    for (const [key, value] of Object.entries(envVars ?? {})) args.push('--env', `${key}=${value}`);
+    args.push(image);
+    return args;
   }
 
   function lastMeaningful(text) {

@@ -131,6 +131,8 @@ export interface HostingDeployment { id: string; ref: string; status: string; er
   startedAt: string | null; finishedAt: string | null; createdAt: string }
 export interface HostingAppDetail extends HostingAppListItem { containerRef: string | null;
   currentDeploymentId: string | null; repoUrl: string; deployments: HostingDeployment[] }
+export interface HostingAppEvent { id: string; kind: string; message: string; deploymentId: string | null; createdAt: string }
+export interface HostingAppEnvVar { key: string; updatedAt: string }
 export interface HostingOverview { available: boolean; plans: HostingPlanOption[]; items: HostingAppListItem[] }
 
 // In-platform domain reselling — docs/domains.md

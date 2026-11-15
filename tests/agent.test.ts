@@ -179,6 +179,11 @@ describe('deploy input validation (definite 400s)', () => {
     ['cpu out of range', { cpuMilli: 5000 }],
     ['bad branch', { branch: 'a b' }],
     ['short id', { deploymentId: 'abc' }],
+    ['env not an object', { env: 'DATABASE_URL=x' }],
+    ['env array', { env: ['DATABASE_URL=x'] }],
+    ['env bad key', { env: { '9BAD-KEY': 'x' } }],
+    ['env value too long', { env: { OK_KEY: 'x'.repeat(4001) } }],
+    ['env too many vars', { env: Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`V_${i}`, 'x'])) }],
   ];
   for (const [name, override] of cases) {
     it(`rejects ${name}`, async () => {
@@ -230,6 +235,26 @@ describe('deploy pipeline', () => {
     expect(caddy).toContain('demo.apps.devrelay.africa');
     expect(caddy).toContain('reverse_proxy 127.0.0.1:10000');
     expect(caddy).toContain('*.apps.devrelay.africa');
+  });
+
+  it('injects --env variables into the container and redacts them from disk', async () => {
+    const { agent, calls, fs } = makeAgent();
+    const post = await postDeploy(agent, validInput({
+      env: { API_KEY: 'super-secret-value', NASTY: 'has=equals+and spaces' },
+    }));
+    expect(post.status).toBe(200);
+    await agent.drain();
+    const run = calls.find(c => c.cmd === 'docker' && c.args[0] === 'run');
+    expect(run).toBeTruthy();
+    expect(run!.args).toContain('API_KEY=super-secret-value');
+    expect(run!.args).toContain('NASTY=has=equals+and spaces');
+    // env values never persist to disk — only redacted markers
+    const persisted = fs.read('/data/state.json') ?? '';
+    expect(persisted).not.toContain('super-secret-value');
+    expect(persisted).toContain('API_KEY');
+    // and re-POST (idempotent read) does not need the env values either
+    const repost = await postDeploy(agent, validInput({ env: undefined }));
+    expect(repost.status).toBe(200);
   });
 
   it('is idempotent by deploymentId: re-POST reads reality instead of rebuilding', async () => {

@@ -33,6 +33,7 @@ const DeveloperSupportPage = lazy(() => import('./pages/app/SupportPage').then(m
 const SettingsPage = lazy(() => import('./pages/app/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const WhatsappPage = lazy(() => import('./pages/app/WhatsappPage').then(m => ({ default: m.WhatsappPage })));
 const HostingPage = lazy(() => import('./pages/app/HostingPage').then(m => ({ default: m.HostingPage })));
+const AppDetailPage = lazy(() => import('./pages/app/AppDetailPage').then(m => ({ default: m.AppDetailPage })));
 const DomainsPage = lazy(() => import('./pages/app/DomainsPage').then(m => ({ default: m.DomainsPage })));
 
 const AdminOverviewPage = lazy(() => import('./pages/admin/AdminOverviewPage').then(m => ({ default: m.AdminOverviewPage })));
@@ -94,6 +95,7 @@ export default function App() {
             <Route path="senders" element={<SendersPage />} />
             <Route path="whatsapp" element={<WhatsappPage />} />
             <Route path="hosting" element={<HostingPage />} />
+            <Route path="hosting/:id" element={<AppDetailPage />} />
             <Route path="domains" element={<DomainsPage />} />
             <Route path="support" element={<DeveloperSupportPage />} />
             <Route path="settings" element={<SettingsPage />} />

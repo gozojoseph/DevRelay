@@ -16,7 +16,8 @@ import { normalizePhone } from '../services/pricing.js';
 import { sendSms, sendSmsSchema, sendWhatsapp, sendWhatsappSchema } from '../services/messaging.js';
 import { createEndpoint, sendTestEndpoint } from '../services/webhooks.js';
 import { conversationMessages, getWhatsapp, onboardWhatsapp, submitTemplate, syncTemplates } from '../services/whatsapp.js';
-import { hostingPlans, createHostingApp, redeployApp, stopHostingApp, startHostingApp, deleteHostingApp } from '../services/hosting.js';
+import { hostingPlans, createHostingApp, redeployApp, stopHostingApp, startHostingApp, deleteHostingApp,
+  listAppEvents, listAppEnvVars, setAppEnvVar, deleteAppEnvVar } from '../services/hosting.js';
 import { DOMAIN_TLDS, DOMAIN_YEAR_DAYS, DOMAIN_GRACE_DAYS, domainRegistrantSchema, createDomainOrder,
   lookupDomainAvailability, setDomainAutoRenew, renewDomainNow } from '../services/domains.js';
 import { httpHostAgent } from '../providers/host-agent.js';
@@ -439,6 +440,38 @@ dashboardRouter.delete('/hosting/apps/:id', requireCsrf, async (req, res) => {
   await deleteHostingApp(accountId(req), id);
   await changed(req, 'hosting_app.delete_queued', 'hosted_app', id);
   ok(req, res, { queued: true }, 202);
+});
+
+dashboardRouter.get('/hosting/apps/:id/events', async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  await ownedApp(req, id);
+  ok(req, res, { items: await listAppEvents(id) });
+});
+
+dashboardRouter.get('/hosting/apps/:id/env', async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  await ownedApp(req, id);
+  // Values never leave the server: the customer sees key names + timestamps and
+  // can set/remove variables; values are revealed only to the app's container.
+  ok(req, res, { items: await listAppEnvVars(id), note: 'Values are write-only. Changes apply on the next deploy.' });
+});
+
+dashboardRouter.put('/hosting/apps/:id/env', requireCsrf, async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const app = await ownedApp(req, id);
+  const input = z.object({ key: z.string().trim().min(1).max(120), value: z.string().min(1).max(4000) }).parse(req.body);
+  await setAppEnvVar({ app, key: input.key, value: input.value });
+  await changed(req, 'hosting_app.env_set', 'hosted_app', app.id, { key: input.key });
+  ok(req, res, { key: input.key }, 201);
+});
+
+dashboardRouter.delete('/hosting/apps/:id/env/:key', requireCsrf, async (req, res) => {
+  const id = uuid.parse(req.params.id);
+  const app = await ownedApp(req, id);
+  const key = z.string().trim().min(1).max(120).parse(req.params.key);
+  await deleteAppEnvVar({ app, key });
+  await changed(req, 'hosting_app.env_removed', 'hosted_app', app.id, { key });
+  ok(req, res, { key, removed: true });
 });
 
 dashboardRouter.get('/hosting/apps/:id/logs', async (req, res) => {

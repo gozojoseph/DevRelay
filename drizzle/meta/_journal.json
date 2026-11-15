@@ -22,6 +22,13 @@
       "when": 1794321330404,
       "tag": "0002_domains",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794796800000,
+      "tag": "0003_hosting_observability",
+      "breakpoints": true
     }
   ]
 }

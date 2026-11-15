@@ -317,6 +317,29 @@ export const appDeployments = pgTable('app_deployments', {
   startedAt: time('started_at'), finishedAt: time('finished_at'), createdAt: created(),
 }, (t) => [index('app_deployments_app_idx').on(t.appId, t.createdAt)]);
 
+// Observability for hosted apps: an append-only lifecycle event feed the
+// customer can monitor (created/queued/building/live/failed/stop/start/delete/
+// env changes/renewals), plus per-app environment variables. Env values are
+// encrypted at rest and never returned to the dashboard — only key names and
+// timestamps are listed; a change takes effect on the app's next deploy.
+export const hostedAppEvents = pgTable('hosted_app_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  appId: uuid('app_id').notNull().references(() => hostedApps.id),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  kind: varchar('kind', { length: 40 }).notNull(),
+  message: varchar('message', { length: 300 }).notNull(),
+  deploymentId: uuid('deployment_id'),
+  createdAt: created(),
+}, (t) => [index('hosted_app_events_app_idx').on(t.appId, t.createdAt)]);
+
+export const hostedAppEnvVars = pgTable('hosted_app_env_vars', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  appId: uuid('app_id').notNull().references(() => hostedApps.id),
+  key: varchar('key', { length: 120 }).notNull(),
+  valueEncrypted: text('value_encrypted').notNull(),
+  createdAt: created(), updatedAt: time('updated_at').defaultNow().notNull(),
+}, (t) => [uniqueIndex('hosted_app_env_app_key_unique').on(t.appId, t.key)]);
+
 // In-platform domain reselling (docs/domains.md): customers buy domains from
 // DevRelay, which registers them through a reseller API (HostAfrica). Charged
 // from the GHS wallet in advance — like hosting, no unfunded domain ever
