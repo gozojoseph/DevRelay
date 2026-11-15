@@ -513,6 +513,16 @@ describe('app actions', () => {
     expect(fs.read('/data/Caddyfile')).not.toContain('demo.apps.devrelay.africa');
   });
 
+  it('deleting an app the agent never tracked succeeds idempotently', async () => {
+    const { agent } = await liveAgent();
+    const del = await agent.handleApiRequest({ method: 'DELETE', path: '/apps/39351bf1-e307-4721-96c3-e40d72bc534e', headers: authHeaders, body: undefined });
+    expect(del.status).toBe(200);
+    expect(del.json).toEqual({ ok: true, already: true });
+    // stop/start on a missing app stays a definite 404, not a silent success
+    const stop = await agent.handleApiRequest({ method: 'POST', path: '/apps/39351bf1-e307-4721-96c3-e40d72bc534e/stop', headers: authHeaders, body: undefined });
+    expect(stop.status).toBe(404);
+  });
+
   it('actions during an active build are 409', async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>(resolve => { release = resolve; });

@@ -248,7 +248,14 @@ export function createAgent(deps) {
       const appId = segments[1];
       const app = state.apps[appId];
       const sub = segments[2];
-      if (!app) return respond(404, { error: 'app not found' });
+      if (!app) {
+        // DELETE is idempotent: an app the agent doesn't track is already in
+        // the end state the caller asked for (no container, no route, no
+        // entry), so the platform can finish its delete honestly. Stop/start
+        // on a missing app stays a definite 404.
+        if (method === 'DELETE' && segments.length === 2) return respond(200, { ok: true, already: true });
+        return respond(404, { error: 'app not found' });
+      }
       // All app actions run on the same single-slot queue as builds so a
       // container mutation can never race a deploy's container switch.
       if (method === 'POST' && sub === 'stop') {
