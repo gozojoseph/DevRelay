@@ -17,7 +17,13 @@ export function errorHandler(error: unknown, req: Request, res: Response, _next:
   if (error instanceof ApiError) return fail(res, req, error);
   if (error instanceof ZodError) return fail(res, req, new ApiError(400, 'VALIDATION_ERROR', error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')));
   // Deliberately do not log request bodies, tokens or provider responses.
-  console.error('Request failed', { requestId: req.requestId, name: error instanceof Error ? error.name : 'unknown' });
+  // The message + first stack frame are safe and are what makes a 500
+  // diagnosable from logs alone (e.g. pg error text, wrong-argument throws).
+  const message = error instanceof Error ? error.message.slice(0, 200)
+    : String(error).slice(0, 200);
+  const frame = error instanceof Error ? error.stack?.split('\n')[1]?.trim().slice(0, 160) : undefined;
+  console.error('Request failed', { requestId: req.requestId,
+    name: error instanceof Error ? error.name : 'unknown', message, at: frame });
   return fail(res, req, new ApiError(500, 'INTERNAL_ERROR', 'Something went wrong. Give support this request ID.'));
 }
 export function assert(value: unknown, status: number, code: string, message: string): asserts value {
